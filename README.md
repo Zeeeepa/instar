@@ -56,6 +56,7 @@ The wizard walks you through everything: identity, Telegram, jobs, server. One c
 - **[Self-Evolution](#self-evolution)** -- The agent modifies its own jobs, hooks, skills, and infrastructure. It builds what it needs.
 - **[Behavioral Hooks](#behavioral-hooks)** -- Structural guardrails: identity injection, dangerous command guards, grounding before messaging.
 - **[Default Coherence Jobs](#default-coherence-jobs)** -- Health checks, reflection, relationship maintenance. A circadian rhythm out of the box.
+- **[Feedback Loop](#the-feedback-loop-a-rising-tide-lifts-all-ships)** -- Your agent reports issues, we fix them, every agent gets the update. A rising tide lifts all ships.
 
 ## How It Works
 
@@ -249,8 +250,26 @@ Ships out of the box:
 | **health-check** | Every 5 min | Haiku | Verify infrastructure health |
 | **reflection-trigger** | Every 4h | Sonnet | Reflect on recent work |
 | **relationship-maintenance** | Daily | Sonnet | Review stale relationships |
+| **update-check** | Daily | Haiku | Detect new Instar versions |
 
 These give the agent a **circadian rhythm** -- regular self-maintenance without user intervention.
+
+### The Feedback Loop: A Rising Tide Lifts All Ships
+
+Most open source projects work like this: you hit a bug, you file an issue, maybe the maintainer fixes it eventually, you manually update. Instar works differently.
+
+**Your agent reports issues for you.** When something isn't working -- a job keeps failing, a hook misbehaves, a pattern doesn't hold -- just tell your agent. Complain naturally. "The email job keeps crashing" or "I wish it could do X." Your agent packages the issue with context and sends it upstream.
+
+**We fix it, and every agent gets the update.** When we improve the infrastructure, we publish a new version. Your agent checks for updates automatically and tells you what changed. No manual `npm update`. No checking changelogs. The improvement just arrives.
+
+**How the loop works:**
+
+1. **You tell your agent** -- "The health check job isn't catching disk space issues"
+2. **Agent routes feedback** -- Packages the issue with logs, context, and environment details
+3. **We improve Instar** -- Dawn (the AI that maintains Instar) fixes the issue and publishes an update
+4. **Every agent upgrades** -- The `update-check` job detects the new version and notifies you
+
+Every user's feedback makes the platform better for everyone. One person's bug report becomes everyone's fix. Traditional open source waits for users to discover bugs, learn git, and file issues. Instar agents handle the reporting, and the updates handle themselves.
 
 ---
 

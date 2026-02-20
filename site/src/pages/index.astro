@@ -12,6 +12,7 @@ import Layout from '../layouts/Layout.astro';
       </a>
       <div class="flex items-center gap-6">
         <a href="#features" class="text-sm text-slate-400 hover:text-slate-200 transition-colors hidden sm:block">Features</a>
+        <a href="#feedback-loop" class="text-sm text-slate-400 hover:text-slate-200 transition-colors hidden sm:block">Feedback Loop</a>
         <a href="#comparison" class="text-sm text-slate-400 hover:text-slate-200 transition-colors hidden sm:block">vs OpenClaw</a>
         <a href="#quickstart" class="text-sm text-slate-400 hover:text-slate-200 transition-colors hidden sm:block">Quick Start</a>
         <a href="#philosophy" class="text-sm text-slate-400 hover:text-slate-200 transition-colors hidden sm:block">Philosophy</a>
@@ -34,7 +35,7 @@ import Layout from '../layouts/Layout.astro';
         <img src="/logo.png" alt="Instar mascot" class="w-24 h-24 mx-auto mb-6 drop-shadow-lg" />
         <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-teal-500/20 bg-teal-500/5 text-teal-400 text-xs font-medium mb-8 tracking-wide">
           <span class="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
-          v0.1.0 &mdash; Now on npm
+          Beta &mdash; Now on npm
         </div>
       </div>
 
@@ -353,6 +354,104 @@ curl -X POST localhost:4040/sessions/research/input \\
       <p class="text-center text-slate-500 mt-10 text-sm max-w-lg mx-auto">
         When you say "check my emails regularly," the agent doesn't say "I can't do that."
         It creates a script, adds a job to the scheduler, and starts checking.
+      </p>
+    </div>
+  </section>
+
+  <!-- The Feedback Loop -->
+  <section id="feedback-loop" class="py-20 sm:py-28 border-t border-slate-800/50">
+    <div class="max-w-4xl mx-auto px-6">
+      <div class="text-center mb-14">
+        <h2 class="text-3xl sm:text-4xl font-bold text-slate-100 mb-4">A Rising Tide Lifts All Ships</h2>
+        <p class="text-slate-400 max-w-2xl mx-auto">
+          When one agent hits a problem, every agent benefits from the fix.
+          Instar has a built-in feedback loop: your agent reports issues, we improve the infrastructure, and every Instar agent gets the update.
+        </p>
+      </div>
+
+      <!-- The Loop Diagram -->
+      <div class="grid sm:grid-cols-4 gap-4 mb-12">
+        <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-5 text-center relative">
+          <div class="w-10 h-10 rounded-full bg-blue-400/10 flex items-center justify-center mx-auto mb-3">
+            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+          </div>
+          <p class="text-sm font-medium text-slate-200 mb-1">You tell your agent</p>
+          <p class="text-xs text-slate-500">"The email job keeps failing" or "I wish it could do X"</p>
+          <!-- Arrow -->
+          <div class="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 text-slate-600 z-10">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-5 text-center relative">
+          <div class="w-10 h-10 rounded-full bg-teal-400/10 flex items-center justify-center mx-auto mb-3">
+            <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          </div>
+          <p class="text-sm font-medium text-slate-200 mb-1">Agent routes feedback</p>
+          <p class="text-xs text-slate-500">Your agent packages the issue with context and sends it upstream</p>
+          <div class="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 text-slate-600 z-10">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-5 text-center relative">
+          <div class="w-10 h-10 rounded-full bg-green-400/10 flex items-center justify-center mx-auto mb-3">
+            <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          </div>
+          <p class="text-sm font-medium text-slate-200 mb-1">We fix it</p>
+          <p class="text-xs text-slate-500">Dawn improves the infrastructure and publishes an update</p>
+          <div class="hidden sm:block absolute -right-2 top-1/2 -translate-y-1/2 text-slate-600 z-10">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-teal-500/20 bg-teal-500/5 p-5 text-center glow-teal">
+          <div class="w-10 h-10 rounded-full bg-teal-400/10 flex items-center justify-center mx-auto mb-3">
+            <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
+          <p class="text-sm font-medium text-slate-200 mb-1">Every agent upgrades</p>
+          <p class="text-xs text-slate-500">Your agent detects the new version and tells you what changed</p>
+        </div>
+      </div>
+
+      <!-- Key points -->
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <svg class="w-4 h-4 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <p class="text-sm font-medium text-slate-200">No issue tracker needed</p>
+          </div>
+          <p class="text-xs text-slate-500">Just talk to your agent. Complain naturally. It knows how to escalate.</p>
+        </div>
+
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+            <p class="text-sm font-medium text-slate-200">Automatic version detection</p>
+          </div>
+          <p class="text-xs text-slate-500">Your agent checks for updates and notifies you when improvements land.</p>
+        </div>
+
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <p class="text-sm font-medium text-slate-200">Community-driven improvement</p>
+          </div>
+          <p class="text-xs text-slate-500">Every user's feedback makes the platform better for everyone.</p>
+        </div>
+
+        <div class="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
+          <div class="flex items-center gap-2 mb-2">
+            <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <p class="text-sm font-medium text-slate-200">Zero-effort updates</p>
+          </div>
+          <p class="text-xs text-slate-500">No manual npm update commands. Your agent handles it.</p>
+        </div>
+      </div>
+
+      <p class="text-center text-slate-500 mt-10 text-sm max-w-lg mx-auto">
+        Traditional open source waits for you to file a bug report. Instar agents report back for you.
+        When we fix something, every agent in the ecosystem gets the improvement automatically.
       </p>
     </div>
   </section>
@@ -694,6 +793,17 @@ curl -X POST localhost:4040/sessions/research/input \\
           <div class="flex items-center gap-4">
             <span class="text-slate-500 text-xs">daily</span>
             <span class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">sonnet</span>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between p-4 rounded-lg border border-teal-500/10 bg-teal-500/5">
+          <div class="flex items-center gap-3">
+            <div class="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></div>
+            <span class="text-slate-200 text-sm font-medium font-mono">update-check</span>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="text-slate-500 text-xs">daily</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">haiku</span>
           </div>
         </div>
       </div>

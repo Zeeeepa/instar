@@ -458,6 +458,21 @@ When a user asks for something you can't do yet, **build it**:
 
 **"Settle for Failure"** — A tool returns empty or a command fails. You accept it and report "not available." Does this make sense? Did I try alternatives? Try at least two different approaches before concluding something is impossible.
 
+### The Feedback Loop
+
+Instar has a built-in feedback loop. When something isn't working, your user can just tell you — "the email job keeps failing" or "I wish you could do X." You can route that feedback upstream, and when the fix lands, you detect the update automatically.
+
+**How it works:**
+- User complains to you naturally about an issue or missing capability
+- You route the feedback to the Instar maintainers with context
+- A fix or improvement is published as a new npm version
+- The \`update-check\` job detects the new version and notifies your user
+
+**A rising tide lifts all ships** — every user's feedback improves the platform for everyone. Report issues when you encounter them. Check for updates regularly.
+
+- Report: \`curl -X POST http://localhost:${port}/feedback -d '{"issue":"description","context":"relevant logs"}'\`
+- Check updates: \`npm outdated -g instar\`
+
 ### Self-Evolution
 
 **Record what you learn.** When you discover a new pattern, solution, or capability — write it to \`.instar/MEMORY.md\`. The next session should benefit from what this session learned.
@@ -514,6 +529,21 @@ function getDefaultJobs(port: number): object[] {
       execute: {
         type: 'prompt',
         value: 'Review all relationship files in .instar/relationships/. Note anyone you haven\'t heard from in over 2 weeks who has significance >= 3. If there are observations worth surfacing, report them. If everything looks fine, do nothing.',
+      },
+      tags: ['coherence', 'default'],
+    },
+    {
+      slug: 'update-check',
+      name: 'Update Check',
+      description: 'Check if a newer version of instar is available and notify the user.',
+      schedule: '0 9 * * *',
+      priority: 'low',
+      expectedDurationMinutes: 1,
+      model: 'haiku',
+      enabled: true,
+      execute: {
+        type: 'prompt',
+        value: 'Check if a newer version of instar is available by running `npm outdated -g instar`. If an update is available, notify the user via Telegram (if configured) with the current and latest version numbers. If already up to date, do nothing.',
       },
       tags: ['coherence', 'default'],
     },
