@@ -14,13 +14,38 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FeedbackItem, FeedbackConfig } from './types.js';
 
+/** Maximum number of feedback items stored locally. */
+const MAX_FEEDBACK_ITEMS = 1000;
+
 export class FeedbackManager {
   private config: FeedbackConfig;
   private feedbackFile: string;
 
   constructor(config: FeedbackConfig) {
+    if (config.webhookUrl) {
+      FeedbackManager.validateWebhookUrl(config.webhookUrl);
+    }
     this.config = config;
     this.feedbackFile = config.feedbackFile;
+  }
+
+  /** Validate webhook URL is HTTPS and not pointing to internal addresses. */
+  private static validateWebhookUrl(url: string): void {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`FeedbackManager: invalid webhook URL: ${url}`);
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new Error('FeedbackManager: webhook URL must use HTTPS');
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0' ||
+        host.startsWith('10.') || host.startsWith('192.168.') || host.endsWith('.local') ||
+        host.startsWith('169.254.') || host === '[::1]') {
+      throw new Error('FeedbackManager: webhook URL must not point to internal addresses');
+    }
   }
 
   /**
@@ -34,23 +59,26 @@ export class FeedbackManager {
       forwarded: false,
     };
 
-    // Store locally first (receipt)
-    this.appendFeedback(feedback);
-
-    // Forward to webhook if enabled
+    // Forward to webhook if enabled (before persisting, so we know result)
     if (this.config.enabled && this.config.webhookUrl) {
       try {
+        // Only send safe fields to webhook — not full internal state
+        const payload = {
+          id: feedback.id,
+          type: feedback.type,
+          message: feedback.message,
+          submittedAt: feedback.submittedAt,
+        };
         const response = await fetch(this.config.webhookUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(feedback),
+          body: JSON.stringify(payload),
           signal: AbortSignal.timeout(10000), // 10s timeout
         });
 
         if (response.ok) {
           feedback.forwarded = true;
-          this.updateFeedback(feedback);
-          console.log(`[feedback] Forwarded to ${this.config.webhookUrl}`);
+          console.log(`[feedback] Forwarded to webhook`);
         } else {
           console.error(`[feedback] Webhook returned ${response.status}: ${response.statusText}`);
         }
@@ -59,6 +87,9 @@ export class FeedbackManager {
         console.error(`[feedback] Webhook failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+
+    // Store locally in a single write (eliminates append+update race condition)
+    this.appendFeedback(feedback);
 
     return feedback;
   }
@@ -136,8 +167,12 @@ export class FeedbackManager {
   }
 
   private appendFeedback(item: FeedbackItem): void {
-    const items = this.loadFeedback();
+    let items = this.loadFeedback();
     items.push(item);
+    // Cap feedback items to prevent unbounded file growth
+    if (items.length > MAX_FEEDBACK_ITEMS) {
+      items = items.slice(-MAX_FEEDBACK_ITEMS);
+    }
     this.saveFeedback(items);
   }
 

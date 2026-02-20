@@ -87,9 +87,15 @@ export class StateManager {
   // ── Activity Events ───────────────────────────────────────────
 
   appendEvent(event: ActivityEvent): void {
-    const date = new Date().toISOString().slice(0, 10);
-    const filePath = path.join(this.stateDir, 'logs', `activity-${date}.jsonl`);
-    fs.appendFileSync(filePath, JSON.stringify(event) + '\n');
+    try {
+      const date = new Date().toISOString().slice(0, 10);
+      const dir = path.join(this.stateDir, 'logs');
+      fs.mkdirSync(dir, { recursive: true });
+      const filePath = path.join(dir, `activity-${date}.jsonl`);
+      fs.appendFileSync(filePath, JSON.stringify(event) + '\n');
+    } catch (err) {
+      console.error(`[StateManager] Failed to append event: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   queryEvents(options: {

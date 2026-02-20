@@ -150,12 +150,22 @@ export function loadConfig(projectDir?: string): AgentKitConfig {
     },
   };
 
+  const host = fileConfig.host || '127.0.0.1';
+
+  // Warn if binding to a non-loopback address without auth token
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1' && !fileConfig.authToken) {
+    console.warn(
+      `[Config] WARNING: Server binding to ${host} without authToken configured. ` +
+      `This exposes the API without authentication. Set authToken in .instar/config.json.`
+    );
+  }
+
   return {
     projectName,
     projectDir: resolvedProjectDir,
     stateDir,
     port: fileConfig.port || DEFAULT_PORT,
-    host: fileConfig.host || '127.0.0.1',
+    host,
     version: getInstarVersion(),
     sessions,
     scheduler,

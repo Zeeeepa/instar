@@ -132,7 +132,7 @@ describe('FeedbackManager edge cases', () => {
     });
 
     it('returns zero when no unforwarded items', async () => {
-      const mgr = createManager({ enabled: true, webhookUrl: 'http://localhost:9999' });
+      const mgr = createManager({ enabled: true, webhookUrl: 'https://example.com/webhook' });
       const result = await mgr.retryUnforwarded();
       expect(result.retried).toBe(0);
       expect(result.succeeded).toBe(0);

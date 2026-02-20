@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { RelationshipManager } from '../../src/core/RelationshipManager.js';
 import type { RelationshipManagerConfig, RelationshipRecord } from '../../src/core/types.js';
 
@@ -27,7 +28,7 @@ describe('Relationship stale detection and context', () => {
   });
 
   function createRecord(overrides: Partial<RelationshipRecord> = {}): RelationshipRecord {
-    const id = overrides.id || `test-${Date.now()}`;
+    const id = overrides.id || randomUUID();
     return {
       id,
       name: 'Test Person',
@@ -43,6 +44,15 @@ describe('Relationship stale detection and context', () => {
     };
   }
 
+  // Deterministic UUIDs for test assertions
+  const STALE_ID = '00000000-0000-4000-a000-000000000001';
+  const LOWSIG_ID = '00000000-0000-4000-a000-000000000002';
+  const RECENT_ID = '00000000-0000-4000-a000-000000000003';
+  const MEDIUM_ID = '00000000-0000-4000-a000-000000000004';
+  const CTX_ID = '00000000-0000-4000-a000-000000000005';
+  const MINIMAL_ID = '00000000-0000-4000-a000-000000000006';
+  const INTERACT_ID = '00000000-0000-4000-a000-000000000007';
+
   describe('Stale detection', () => {
     it('finds relationships not contacted in X days', () => {
       const oldDate = new Date();
@@ -50,7 +60,7 @@ describe('Relationship stale detection and context', () => {
 
       // Create a stale relationship (significance >= 3)
       const record = createRecord({
-        id: 'stale-person',
+        id: STALE_ID,
         lastInteraction: oldDate.toISOString(),
         significance: 5,
       });
@@ -60,7 +70,7 @@ describe('Relationship stale detection and context', () => {
       const freshManager = new RelationshipManager(config);
       const stale = freshManager.getStaleRelationships(14);
       expect(stale.length).toBe(1);
-      expect(stale[0].id).toBe('stale-person');
+      expect(stale[0].id).toBe(STALE_ID);
     });
 
     it('ignores low-significance relationships', () => {
@@ -68,7 +78,7 @@ describe('Relationship stale detection and context', () => {
       oldDate.setDate(oldDate.getDate() - 30);
 
       const record = createRecord({
-        id: 'low-sig',
+        id: LOWSIG_ID,
         lastInteraction: oldDate.toISOString(),
         significance: 2, // Below threshold of 3
       });
@@ -81,7 +91,7 @@ describe('Relationship stale detection and context', () => {
 
     it('ignores recently contacted relationships', () => {
       const record = createRecord({
-        id: 'recent-person',
+        id: RECENT_ID,
         lastInteraction: new Date().toISOString(),
         significance: 10,
       });
@@ -97,7 +107,7 @@ describe('Relationship stale detection and context', () => {
       oldDate.setDate(oldDate.getDate() - 10);
 
       const record = createRecord({
-        id: 'medium-stale',
+        id: MEDIUM_ID,
         lastInteraction: oldDate.toISOString(),
         significance: 5,
       });
@@ -122,7 +132,7 @@ describe('Relationship stale detection and context', () => {
 
     it('generates structured XML context', () => {
       const record = createRecord({
-        id: 'ctx-person',
+        id: CTX_ID,
         name: 'Alice',
         themes: ['AI', 'philosophy'],
         communicationStyle: 'technical and direct',
@@ -133,7 +143,7 @@ describe('Relationship stale detection and context', () => {
       fs.writeFileSync(path.join(dir, `${record.id}.json`), JSON.stringify(record));
 
       const freshManager = new RelationshipManager(config);
-      const context = freshManager.getContextForPerson('ctx-person');
+      const context = freshManager.getContextForPerson(CTX_ID);
 
       expect(context).not.toBeNull();
       expect(context).toContain('<relationship_context person="Alice">');
@@ -148,7 +158,7 @@ describe('Relationship stale detection and context', () => {
 
     it('omits optional fields when not present', () => {
       const record = createRecord({
-        id: 'minimal-person',
+        id: MINIMAL_ID,
         name: 'Bob',
         themes: [],
         significance: 3,
@@ -156,7 +166,7 @@ describe('Relationship stale detection and context', () => {
       fs.writeFileSync(path.join(dir, `${record.id}.json`), JSON.stringify(record));
 
       const freshManager = new RelationshipManager(config);
-      const context = freshManager.getContextForPerson('minimal-person');
+      const context = freshManager.getContextForPerson(MINIMAL_ID);
 
       expect(context).not.toBeNull();
       expect(context).toContain('Name: Bob');
@@ -167,7 +177,7 @@ describe('Relationship stale detection and context', () => {
 
     it('includes recent interactions (last 5)', () => {
       const record = createRecord({
-        id: 'interactions-person',
+        id: INTERACT_ID,
         name: 'Carol',
         recentInteractions: [
           { timestamp: '2024-01-01', channel: 'telegram', summary: 'Discussed project' },
@@ -181,7 +191,7 @@ describe('Relationship stale detection and context', () => {
       fs.writeFileSync(path.join(dir, `${record.id}.json`), JSON.stringify(record));
 
       const freshManager = new RelationshipManager(config);
-      const context = freshManager.getContextForPerson('interactions-person');
+      const context = freshManager.getContextForPerson(INTERACT_ID);
 
       expect(context).toContain('Recent interactions:');
       // Should show last 5, not all 6

@@ -320,6 +320,11 @@ export class SessionManager extends EventEmitter {
     const projectBase = path.basename(this.config.projectDir);
     const tmuxSession = sanitized ? `${projectBase}-${sanitized}` : `${projectBase}-interactive-${Date.now()}`;
 
+    // Prevent injection into protected sessions (e.g., the server itself)
+    if (this.config.protectedSessions.includes(tmuxSession)) {
+      throw new Error(`Cannot interact with protected session: ${tmuxSession}`);
+    }
+
     if (this.tmuxSessionExists(tmuxSession)) {
       // Session already exists — just reuse it
       if (initialMessage) {

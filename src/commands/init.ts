@@ -230,8 +230,8 @@ node_modules/
   console.log(`  ${pc.dim('2.')} ${pc.cyan('instar server start')}     ${pc.dim('Start the agent server')}`);
   console.log(`  ${pc.dim('3.')} ${pc.cyan('claude')}                     ${pc.dim('Open a Claude session')}`);
   console.log();
-  console.log(`  Auth token: ${pc.dim(authToken)}`);
-  console.log(`  ${pc.dim('(saved in .instar/config.json — use for API calls)')}`);
+  console.log(`  Auth token: ${pc.dim(authToken.slice(0, 8) + '...' + authToken.slice(-4))}`);
+  console.log(`  ${pc.dim('(full token saved in .instar/config.json — use for API calls)')}`);
   console.log();
 }
 
@@ -298,7 +298,7 @@ async function initExistingProject(options: InitOptions): Promise<void> {
 
   const configPath = path.join(stateDir, 'config.json');
   if (!fs.existsSync(configPath)) {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
     console.log(pc.green('  Created:') + ' .instar/config.json');
   } else {
     console.log(pc.dim('  Exists:') + ' .instar/config.json (preserved)');

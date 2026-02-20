@@ -21,7 +21,12 @@ export function loadJobs(jobsFile: string): JobDefinition[] {
     throw new Error(`Jobs file not found: ${jobsFile}`);
   }
 
-  const raw = JSON.parse(fs.readFileSync(jobsFile, 'utf-8'));
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(jobsFile, 'utf-8'));
+  } catch (err) {
+    throw new Error(`Failed to parse jobs file ${jobsFile}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   if (!Array.isArray(raw)) {
     throw new Error(`Jobs file must contain a JSON array, got ${typeof raw}`);
@@ -67,9 +72,10 @@ export function validateJob(job: unknown, index?: number): void {
     );
   }
 
-  // Cron expression — try to parse it
+  // Cron expression — try to parse it (validate only, don't leave running)
   try {
-    new Cron(j.schedule as string);
+    const testCron = new Cron(j.schedule as string);
+    testCron.stop();
   } catch (err) {
     throw new Error(`${prefix}: invalid cron expression "${j.schedule}": ${err}`);
   }
@@ -89,5 +95,10 @@ export function validateJob(job: unknown, index?: number): void {
   }
   if (typeof exec.value !== 'string' || !(exec.value as string).trim()) {
     throw new Error(`${prefix}: execute.value is required`);
+  }
+
+  // Optional args must be a string if present
+  if (exec.args !== undefined && typeof exec.args !== 'string') {
+    throw new Error(`${prefix}: execute.args must be a string if provided, got ${typeof exec.args}`);
   }
 }

@@ -356,7 +356,7 @@ export async function stopServer(options: { dir?: string }): Promise<void> {
   // Send SIGTERM first for graceful shutdown, then force kill after timeout
   try {
     // Send C-c (SIGINT) to the foreground process in the session
-    execFileSync(tmuxPath, ['send-keys', '-t', `=${serverSessionName}:`, 'C-c', ''], { stdio: 'ignore' });
+    execFileSync(tmuxPath, ['send-keys', '-t', `=${serverSessionName}:`, 'C-c'], { stdio: 'ignore' });
     console.log(`  Sent shutdown signal to ${serverSessionName}...`);
 
     // Wait up to 5 seconds for graceful shutdown

@@ -22,6 +22,11 @@ import type {
   UserChannel,
 } from './types.js';
 
+/** Maximum number of channels per relationship record. */
+const MAX_CHANNELS = 50;
+/** Maximum length of notes field. */
+const MAX_NOTES_LENGTH = 10_000;
+
 export class RelationshipManager {
   private relationships: Map<string, RelationshipRecord> = new Map();
   /** Maps "channel_type:identifier" -> relationship ID for cross-platform resolution */
@@ -34,6 +39,13 @@ export class RelationshipManager {
       mkdirSync(config.relationshipsDir, { recursive: true });
     }
     this.loadAll();
+  }
+
+  /** Validate a record ID is a valid UUID format to prevent path traversal. */
+  private validateId(id: string): void {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
+      throw new Error(`RelationshipManager: invalid record ID format: ${id}`);
+    }
   }
 
   // ── Core Operations ────────────────────────────────────────────────
@@ -155,7 +167,7 @@ export class RelationshipManager {
   updateNotes(id: string, notes: string): void {
     const record = this.relationships.get(id);
     if (!record) return;
-    record.notes = notes;
+    record.notes = notes.slice(0, MAX_NOTES_LENGTH);
     this.save(record);
   }
 
@@ -187,6 +199,10 @@ export class RelationshipManager {
     }
 
     if (!record.channels.some((c) => c.type === channel.type && c.identifier === channel.identifier)) {
+      if (record.channels.length >= MAX_CHANNELS) {
+        console.warn(`[RelationshipManager] Channel limit (${MAX_CHANNELS}) reached for ${record.name}`);
+        return;
+      }
       record.channels.push(channel);
       this.channelIndex.set(channelKey, id);
       this.save(record);
@@ -227,11 +243,11 @@ export class RelationshipManager {
     // Sum interaction counts
     keep.interactionCount += merge.interactionCount;
 
-    // Merge notes
+    // Merge notes (cap total length)
     if (merge.notes && merge.notes !== keep.notes) {
       keep.notes = keep.notes
-        ? `${keep.notes}\n\n[Merged from ${merge.name}]: ${merge.notes}`
-        : merge.notes;
+        ? `${keep.notes}\n\n[Merged from ${merge.name}]: ${merge.notes}`.slice(0, MAX_NOTES_LENGTH)
+        : merge.notes.slice(0, MAX_NOTES_LENGTH);
     }
 
     keep.significance = this.calculateSignificance(keep);
@@ -272,9 +288,15 @@ export class RelationshipManager {
     const record = this.relationships.get(id);
     if (!record) return null;
 
+    // Sanitize user-controlled strings to prevent XML/prompt injection
+    const sanitize = (s: string): string =>
+      s.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const safeName = sanitize(record.name);
+
     const lines: string[] = [
-      `<relationship_context person="${record.name}">`,
-      `Name: ${record.name}`,
+      `<relationship_context person="${safeName}">`,
+      `Name: ${safeName}`,
       `Known since: ${record.firstInteraction}`,
       `Last interaction: ${record.lastInteraction}`,
       `Total interactions: ${record.interactionCount}`,
@@ -282,25 +304,25 @@ export class RelationshipManager {
     ];
 
     if (record.themes.length > 0) {
-      lines.push(`Key themes: ${record.themes.join(', ')}`);
+      lines.push(`Key themes: ${record.themes.map(sanitize).join(', ')}`);
     }
 
     if (record.communicationStyle) {
-      lines.push(`Communication style: ${record.communicationStyle}`);
+      lines.push(`Communication style: ${sanitize(record.communicationStyle)}`);
     }
 
     if (record.arcSummary) {
-      lines.push(`Relationship arc: ${record.arcSummary}`);
+      lines.push(`Relationship arc: ${sanitize(record.arcSummary)}`);
     }
 
     if (record.notes) {
-      lines.push(`Notes: ${record.notes}`);
+      lines.push(`Notes: ${sanitize(record.notes)}`);
     }
 
     if (record.recentInteractions.length > 0) {
       lines.push('Recent interactions:');
       for (const interaction of record.recentInteractions.slice(-5)) {
-        lines.push(`  - [${interaction.timestamp}] ${interaction.summary}`);
+        lines.push(`  - [${sanitize(interaction.timestamp)}] ${sanitize(interaction.summary)}`);
       }
     }
 
@@ -330,8 +352,15 @@ export class RelationshipManager {
     for (const file of files) {
       try {
         const data = JSON.parse(readFileSync(join(this.config.relationshipsDir, file), 'utf-8'));
+        // Verify the filename matches the record ID (prevents tampered/misnamed files)
+        const expectedFile = `${data.id}.json`;
+        if (file !== expectedFile) {
+          console.warn(`[RelationshipManager] Filename mismatch: ${file} contains id ${data.id}, skipping`);
+          continue;
+        }
+        this.validateId(data.id);
         this.relationships.set(data.id, data);
-        for (const channel of data.channels) {
+        for (const channel of (data.channels ?? [])) {
           this.channelIndex.set(`${channel.type}:${channel.identifier}`, data.id);
         }
       } catch {
@@ -341,14 +370,21 @@ export class RelationshipManager {
   }
 
   private save(record: RelationshipRecord): void {
+    this.validateId(record.id);
     const filePath = join(this.config.relationshipsDir, `${record.id}.json`);
-    // Atomic write: write to .tmp then rename
-    const tmpPath = filePath + '.tmp';
-    writeFileSync(tmpPath, JSON.stringify(record, null, 2));
-    renameSync(tmpPath, filePath);
+    // Atomic write: write to unique .tmp then rename
+    const tmpPath = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    try {
+      writeFileSync(tmpPath, JSON.stringify(record, null, 2));
+      renameSync(tmpPath, filePath);
+    } catch (err) {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+      throw err;
+    }
   }
 
   private deleteFile(id: string): void {
+    this.validateId(id);
     const filePath = join(this.config.relationshipsDir, `${id}.json`);
     try {
       unlinkSync(filePath);
