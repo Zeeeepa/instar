@@ -1,6 +1,6 @@
 {
   "name": "instar",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Persistent autonomy infrastructure for AI agents",
   "type": "module",
   "main": "dist/index.js",
@@ -37,6 +37,14 @@
     "automation",
     "claude-code"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SageMindAI/instar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SageMindAI/instar/issues"
+  },
+  "homepage": "https://instar.sh",
   "license": "MIT",
   "engines": {
     "node": ">=20.12.0"
