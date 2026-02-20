@@ -6,7 +6,7 @@
 **Ending Version**: 0.1.11
 **Commits**: 47
 **Files Changed**: 102 (8,574 lines added, 544 removed)
-**Tests**: 350 -> 654 (unit) + 37 (integration) + 9 (e2e) = 700 total
+**Tests**: 350 -> 654 (unit) + 38 (integration) + 9 (e2e) = 701 total
 **TypeScript**: Compiles cleanly with `--strict`
 **Package Size**: 98.2 kB (60 files)
 
@@ -257,6 +257,21 @@ All 8 migrated to `execFileSync` with argument arrays. Verified: `grep execSync(
 
 `notifyJobComplete` had `processQueue()` behind a messenger guard (`if (!this.messenger && !this.telegram) return`). If no messaging adapter was configured, the queue would never drain when sessions completed. Fixed by moving `processQueue()` before the messenger check.
 
+### Setup Wizard Missing Auth Token (FIXED — Security)
+
+The classic setup wizard (`instar setup --classic`) never generated or included an `authToken` in the config. Projects configured via this path would have **no auth protection** on their API server — all endpoints except `/health` would be accessible without any token.
+
+**Impact**: Any project initialized via `instar setup --classic` rather than `instar init` would have an unprotected API.
+**Fix**: Added `import { randomUUID } from 'node:crypto'`, generated auth token, included it in the config object, and displayed a preview in the setup summary.
+
+### Setup Wizard Config File Permissions (FIXED — Security)
+
+The setup wizard wrote `config.json` (containing the auth token) without restrictive file permissions. Unlike `init.ts` which correctly uses `{ mode: 0o600 }`, setup.ts used the default (world-readable).
+
+**Impact**: Config file containing the auth token readable by all users on the system.
+**Fix**: Added `{ mode: 0o600 }` to `fs.writeFileSync` for config.json.
+**Tests**: 1 new integration test verifying config file permissions are 0o600.
+
 ---
 
 ## Final Test Counts
@@ -264,9 +279,9 @@ All 8 migrated to `execFileSync` with argument arrays. Verified: `grep execSync(
 | Suite | Count | Status |
 |-------|-------|--------|
 | Unit | 654 | All passing |
-| Integration | 37 | All passing |
+| Integration | 38 | All passing |
 | E2E | 9 | All passing |
-| **Total** | **700** | **All passing** |
+| **Total** | **701** | **All passing** |
 
 ---
 

@@ -96,6 +96,14 @@ describe('Fresh install: instar init <project-name>', () => {
     expect(config.relationships.maxRecentInteractions).toBe(20);
   });
 
+  it('writes config.json with restrictive permissions (0o600)', () => {
+    const configPath = path.join(projectDir, '.instar', 'config.json');
+    const stats = fs.statSync(configPath);
+    // Config contains auth token — must be owner-only read/write
+    const permissions = stats.mode & 0o777;
+    expect(permissions).toBe(0o600);
+  });
+
   it('creates jobs.json with default coherence jobs', () => {
     const jobsPath = path.join(projectDir, '.instar', 'jobs.json');
     expect(fs.existsSync(jobsPath)).toBe(true);

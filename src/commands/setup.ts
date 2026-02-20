@@ -16,6 +16,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import pc from 'picocolors';
@@ -258,9 +259,11 @@ async function runClassicSetup(): Promise<void> {
   ensureStateDir(stateDir);
 
   // Config
+  const authToken = randomUUID();
   const config: Partial<InstarConfig> = {
     projectName,
     port,
+    authToken,
     sessions: {
       tmuxPath,
       claudePath,
@@ -294,7 +297,8 @@ async function runClassicSetup(): Promise<void> {
 
   fs.writeFileSync(
     path.join(stateDir, 'config.json'),
-    JSON.stringify(config, null, 2)
+    JSON.stringify(config, null, 2),
+    { mode: 0o600 },
   );
   console.log(`  ${pc.green('✓')} Config written`);
 
@@ -355,6 +359,9 @@ async function runClassicSetup(): Promise<void> {
   console.log(`    ${pc.cyan('.instar/config.json')}  — configuration`);
   console.log(`    ${pc.cyan('.instar/jobs.json')}    — job definitions`);
   console.log(`    ${pc.cyan('.instar/users.json')}   — user profiles`);
+  console.log();
+  console.log(`  Auth token: ${pc.dim(authToken.slice(0, 8) + '...' + authToken.slice(-4))}`);
+  console.log(`  ${pc.dim('(full token saved in .instar/config.json — use for API calls)')}`);
   console.log();
 
   // Check if instar is globally installed (needed for server commands)
