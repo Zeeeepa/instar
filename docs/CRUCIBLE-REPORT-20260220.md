@@ -6,7 +6,7 @@
 **Ending Version**: 0.1.11
 **Commits**: 47
 **Files Changed**: 102 (8,574 lines added, 544 removed)
-**Tests**: 350 -> 654 (unit) + 38 (integration) + 9 (e2e) = 701 total
+**Tests**: 350 -> 656 (unit) + 38 (integration) + 9 (e2e) = 703 total
 **TypeScript**: Compiles cleanly with `--strict`
 **Package Size**: 98.2 kB (60 files)
 
@@ -272,17 +272,31 @@ The setup wizard wrote `config.json` (containing the auth token) without restric
 **Fix**: Added `{ mode: 0o600 }` to `fs.writeFileSync` for config.json.
 **Tests**: 1 new integration test verifying config file permissions are 0o600.
 
+### Config.ts JSON Parse Error Handling (FIXED — Reliability)
+
+`loadConfig()` called `JSON.parse()` on the config file without a try/catch. A corrupted or truncated `config.json` would crash with an unhelpful `SyntaxError` instead of a user-friendly message.
+
+**Impact**: Users would see a raw JS stack trace on corrupted config.
+**Fix**: Wrapped in try/catch with descriptive error message telling users to check their config file.
+**Tests**: 2 new unit tests for corrupted and truncated config.json.
+
+### CLI Feedback Fetch Timeout (FIXED — Reliability)
+
+The `instar feedback` CLI command used `fetch()` without a timeout. If the server was unreachable but the connection didn't fully fail (e.g., firewall DROP), the CLI would hang indefinitely.
+
+**Fix**: Added `AbortSignal.timeout(10_000)` to the fetch call.
+
 ---
 
 ## Final Test Counts
 
 | Suite | Count | Status |
 |-------|-------|--------|
-| Unit | 654 | All passing |
+| Unit | 656 | All passing |
 | Integration | 38 | All passing |
 | E2E | 9 | All passing |
-| **Total** | **701** | **All passing** |
+| **Total** | **703** | **All passing** |
 
 ---
 
-*Report generated during AUT-1655-wo crucible session. 50+ commits, 102+ files changed. Every source file individually reviewed. All 700 tests passing.*
+*Report generated during AUT-1655-wo crucible session. 55+ commits, 102+ files changed. Every source file individually reviewed. All 703 tests passing.*
