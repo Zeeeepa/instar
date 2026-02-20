@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import type { UserProfile, UserChannel, Message } from '../core/types.js';
 
 export class UserManager {
@@ -55,11 +56,22 @@ export class UserManager {
    * Add or update a user.
    */
   upsertUser(profile: UserProfile): void {
+    this.validateProfile(profile);
+
     // Remove old channel index entries
     const existing = this.users.get(profile.id);
     if (existing) {
       for (const channel of existing.channels) {
         this.channelIndex.delete(`${channel.type}:${channel.identifier}`);
+      }
+    }
+
+    // Check for channel collisions — prevent silent ownership transfer
+    for (const channel of profile.channels) {
+      const key = `${channel.type}:${channel.identifier}`;
+      const existingOwner = this.channelIndex.get(key);
+      if (existingOwner && existingOwner !== profile.id) {
+        throw new Error(`Channel ${key} is already registered to user ${existingOwner}; cannot assign to ${profile.id}`);
       }
     }
 
@@ -96,19 +108,41 @@ export class UserManager {
     return user.permissions.includes(permission) || user.permissions.includes('admin');
   }
 
+  private validateProfile(profile: UserProfile): void {
+    if (!profile.id || typeof profile.id !== 'string' || !profile.id.trim()) {
+      throw new Error('UserProfile.id must be a non-empty string');
+    }
+    if (!Array.isArray(profile.channels)) {
+      throw new Error(`UserProfile(${profile.id}).channels must be an array`);
+    }
+    if (!Array.isArray(profile.permissions)) {
+      throw new Error(`UserProfile(${profile.id}).permissions must be an array`);
+    }
+  }
+
   private loadUsers(initialUsers?: UserProfile[]): void {
     // Load from file if exists
     if (fs.existsSync(this.usersFile)) {
       try {
         const data: UserProfile[] = JSON.parse(fs.readFileSync(this.usersFile, 'utf-8'));
         for (const user of data) {
+          // Skip malformed entries
+          if (!user.id || !Array.isArray(user.channels) || !Array.isArray(user.permissions)) {
+            console.warn(`[UserManager] Skipping malformed user entry: ${JSON.stringify(user).slice(0, 100)}`);
+            continue;
+          }
           this.users.set(user.id, user);
           for (const channel of user.channels) {
-            this.channelIndex.set(`${channel.type}:${channel.identifier}`, user.id);
+            if (channel.type && channel.identifier) {
+              this.channelIndex.set(`${channel.type}:${channel.identifier}`, user.id);
+            }
           }
         }
-      } catch {
-        console.warn(`[UserManager] Corrupted users file: ${this.usersFile}`);
+      } catch (err) {
+        // Back up corrupted file instead of silently dropping all users
+        const backupPath = this.usersFile + '.corrupt.' + Date.now();
+        try { fs.copyFileSync(this.usersFile, backupPath); } catch { /* best effort */ }
+        console.error(`[UserManager] Corrupted users file backed up to ${backupPath}: ${err}`);
       }
     }
 
@@ -125,9 +159,14 @@ export class UserManager {
   private persistUsers(): void {
     const dir = path.dirname(this.usersFile);
     fs.mkdirSync(dir, { recursive: true });
-    // Atomic write: write to .tmp then rename
-    const tmpPath = this.usersFile + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(Array.from(this.users.values()), null, 2));
-    fs.renameSync(tmpPath, this.usersFile);
+    // Atomic write: unique temp filename prevents concurrent corruption
+    const tmpPath = `${this.usersFile}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(Array.from(this.users.values()), null, 2));
+      fs.renameSync(tmpPath, this.usersFile);
+    } catch (err) {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+      throw err;
+    }
   }
 }

@@ -71,7 +71,8 @@ export class QuotaTracker {
       this.lastRead = now;
       return state;
     } catch {
-      return null;
+      this.lastRead = Date.now(); // Prevent hammering a corrupt file
+      return this.cachedState; // Return last-known-good rather than null
     }
   }
 
@@ -91,7 +92,9 @@ export class QuotaTracker {
     const state = this.getState();
     if (!state) return true; // No data → fail open
 
-    const usage = state.usagePercent;
+    const rawUsage = state.usagePercent;
+    if (typeof rawUsage !== 'number' || !isFinite(rawUsage)) return true; // Bad data → fail open
+    const usage = Math.max(0, Math.min(100, rawUsage));
     const { normal, elevated, critical, shutdown } = this.config.thresholds;
 
     if (usage >= shutdown) return false; // Nothing runs
@@ -115,6 +118,12 @@ export class QuotaTracker {
    * Write a quota state to the file (for collector scripts or manual updates).
    */
   updateState(state: QuotaState): void {
+    if (typeof state.usagePercent !== 'number' || !isFinite(state.usagePercent)) {
+      throw new Error(`Invalid usagePercent: ${state.usagePercent}`);
+    }
+    if (!state.lastUpdated || isNaN(new Date(state.lastUpdated).getTime())) {
+      throw new Error(`Invalid lastUpdated: ${state.lastUpdated}`);
+    }
     const dir = path.dirname(this.config.quotaFile);
     fs.mkdirSync(dir, { recursive: true });
     // Atomic write: unique temp filename to prevent concurrent corruption

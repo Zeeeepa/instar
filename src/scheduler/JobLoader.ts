@@ -58,6 +58,11 @@ export function validateJob(job: unknown, index?: number): void {
     }
   }
 
+  // Slug format — used in file paths and URLs, must be safe
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(j.slug as string)) {
+    throw new Error(`${prefix}: "slug" must contain only letters, numbers, hyphens, underscores (max 100 chars)`);
+  }
+
   // Priority
   if (!VALID_PRIORITIES.includes(j.priority as JobPriority)) {
     throw new Error(

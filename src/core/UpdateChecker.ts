@@ -110,12 +110,15 @@ export class UpdateChecker {
    * Simple semver comparison — is `a` newer than `b`?
    */
   private isNewer(a: string, b: string): boolean {
-    const partsA = a.split('.').map(Number);
-    const partsB = b.split('.').map(Number);
+    // Extract major.minor.patch, ignoring pre-release suffixes
+    const semverRe = /^(\d+)\.(\d+)\.(\d+)/;
+    const matchA = semverRe.exec(a);
+    const matchB = semverRe.exec(b);
+    if (!matchA || !matchB) return false;
 
-    for (let i = 0; i < 3; i++) {
-      const va = partsA[i] || 0;
-      const vb = partsB[i] || 0;
+    for (let i = 1; i <= 3; i++) {
+      const va = Number(matchA[i]);
+      const vb = Number(matchB[i]);
       if (va > vb) return true;
       if (va < vb) return false;
     }

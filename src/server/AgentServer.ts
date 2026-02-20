@@ -96,19 +96,24 @@ export class AgentServer {
         return;
       }
 
+      let resolved = false;
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(forceTimer);
+        this.server = null;
+        resolve();
+      };
+
       // Force-close after 5 seconds if graceful close hangs (keep-alive connections)
       const forceTimer = setTimeout(() => {
         console.log('[instar] Force-closing server (keep-alive timeout)');
         this.server?.closeAllConnections?.();
-        this.server = null;
-        resolve();
+        done();
       }, 5000);
+      forceTimer.unref(); // Don't prevent process exit during shutdown
 
-      this.server.close(() => {
-        clearTimeout(forceTimer);
-        this.server = null;
-        resolve();
-      });
+      this.server.close(() => done());
     });
   }
 

@@ -3,7 +3,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Restrict CORS to localhost origins only — this is a local management API
@@ -45,10 +45,10 @@ export function authMiddleware(authToken?: string) {
     }
 
     const token = header.slice(7);
-    // Timing-safe comparison to prevent timing attacks
-    const a = Buffer.from(token);
-    const b = Buffer.from(authToken);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    // Hash both sides so lengths are always equal — prevents timing leak of token length
+    const ha = createHash('sha256').update(token).digest();
+    const hb = createHash('sha256').update(authToken).digest();
+    if (!timingSafeEqual(ha, hb)) {
       res.status(403).json({ error: 'Invalid auth token' });
       return;
     }
@@ -63,6 +63,17 @@ export function authMiddleware(authToken?: string) {
  */
 export function rateLimiter(windowMs: number = 60_000, maxRequests: number = 10) {
   const requests = new Map<string, number[]>();
+
+  // Periodic cleanup to prevent unbounded memory growth from unique IPs
+  const gcInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, bucket] of requests.entries()) {
+      if (bucket.length === 0 || bucket[bucket.length - 1] <= now - windowMs) {
+        requests.delete(key);
+      }
+    }
+  }, windowMs * 2);
+  gcInterval.unref();
 
   return (req: Request, res: Response, next: NextFunction): void => {
     const key = req.ip || req.socket.remoteAddress || 'unknown';
@@ -98,8 +109,9 @@ export function rateLimiter(windowMs: number = 60_000, maxRequests: number = 10)
  */
 export function requestTimeout(timeoutMs: number = 30_000) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    let done = false;
     const timer = setTimeout(() => {
-      if (!res.headersSent) {
+      if (!done && !res.headersSent) {
         res.status(408).json({
           error: 'Request timeout',
           timeoutMs,
@@ -108,8 +120,8 @@ export function requestTimeout(timeoutMs: number = 30_000) {
     }, timeoutMs);
 
     // Clear timeout when response finishes
-    res.on('finish', () => clearTimeout(timer));
-    res.on('close', () => clearTimeout(timer));
+    res.on('finish', () => { done = true; clearTimeout(timer); });
+    res.on('close', () => { done = true; clearTimeout(timer); });
     next();
   };
 }

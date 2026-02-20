@@ -7,6 +7,7 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import type { SessionManager } from '../core/SessionManager.js';
 import type { JobScheduler } from '../scheduler/JobScheduler.js';
 import type { HealthStatus, ComponentHealth, AgentKitConfig } from '../core/types.js';
@@ -71,6 +72,9 @@ export class HealthChecker {
     if (this.checkInterval) return;
 
     const interval = intervalMs ?? this.config.monitoring.healthCheckIntervalMs;
+    if (!interval || interval <= 0) {
+      throw new Error(`Health check interval must be positive, got ${interval}`);
+    }
     this.check(); // Run immediately
     this.checkInterval = setInterval(() => this.check(), interval);
   }
@@ -163,8 +167,8 @@ export class HealthChecker {
         return { status: 'unhealthy', message: 'State directory missing', lastCheck: now };
       }
 
-      // Check we can write
-      const testFile = `${this.config.stateDir}/.health-check-${Date.now()}`;
+      // Check we can write — fixed name prevents orphaned files on crash
+      const testFile = path.join(this.config.stateDir, '.health-check-probe');
       fs.writeFileSync(testFile, 'ok');
       fs.unlinkSync(testFile);
 

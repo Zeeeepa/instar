@@ -31,27 +31,38 @@ export interface RouteContext {
   startTime: Date;
 }
 
+// Validation patterns for route parameters
+const SESSION_NAME_RE = /^[a-zA-Z0-9_-]{1,200}$/;
+const JOB_SLUG_RE = /^[a-zA-Z0-9_-]{1,100}$/;
+const VALID_SORTS = ['significance', 'recent', 'name'] as const;
+
 export function createRoutes(ctx: RouteContext): Router {
   const router = Router();
 
   // ── Health ──────────────────────────────────────────────────────
 
-  router.get('/health', (_req, res) => {
+  router.get('/health', (req, res) => {
     const uptimeMs = Date.now() - ctx.startTime.getTime();
-    const mem = process.memoryUsage();
-    res.json({
+    const base: Record<string, unknown> = {
       status: 'ok',
       uptime: uptimeMs,
       uptimeHuman: formatUptime(uptimeMs),
-      version: ctx.config.version || '0.0.0',
-      project: ctx.config.projectName,
-      node: process.version,
-      memory: {
+    };
+
+    // Include detailed info only for authenticated callers
+    const isAuthed = !ctx.config.authToken || !!req.headers.authorization;
+    if (isAuthed) {
+      const mem = process.memoryUsage();
+      base.version = ctx.config.version || '0.0.0';
+      base.project = ctx.config.projectName;
+      base.node = process.version;
+      base.memory = {
         rss: Math.round(mem.rss / 1024 / 1024),
         heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
         heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
-      },
-    });
+      };
+    }
+    res.json(base);
   });
 
   // ── Status ──────────────────────────────────────────────────────
@@ -103,6 +114,10 @@ export function createRoutes(ctx: RouteContext): Router {
   });
 
   router.get('/sessions/:name/output', (req, res) => {
+    if (!SESSION_NAME_RE.test(req.params.name)) {
+      res.status(400).json({ error: 'Invalid session name' });
+      return;
+    }
     const rawLines = parseInt(req.query.lines as string, 10) || 100;
     const lines = Math.min(Math.max(rawLines, 1), 10_000);
     const output = ctx.sessionManager.captureOutput(req.params.name, lines);
@@ -116,6 +131,10 @@ export function createRoutes(ctx: RouteContext): Router {
   });
 
   router.post('/sessions/:name/input', (req, res) => {
+    if (!SESSION_NAME_RE.test(req.params.name)) {
+      res.status(400).json({ error: 'Invalid session name' });
+      return;
+    }
     const { text } = req.body;
     if (!text || typeof text !== 'string') {
       res.status(400).json({ error: 'Request body must include "text" field' });
@@ -157,6 +176,10 @@ export function createRoutes(ctx: RouteContext): Router {
       res.status(400).json({ error: '"model" must be one of: opus, sonnet, haiku' });
       return;
     }
+    if (jobSlug !== undefined && (typeof jobSlug !== 'string' || !JOB_SLUG_RE.test(jobSlug))) {
+      res.status(400).json({ error: '"jobSlug" must contain only letters, numbers, hyphens, underscores' });
+      return;
+    }
 
     try {
       const session = await ctx.sessionManager.spawnSession({ name, prompt, model, jobSlug });
@@ -196,6 +219,10 @@ export function createRoutes(ctx: RouteContext): Router {
   });
 
   router.post('/jobs/:slug/trigger', (req, res) => {
+    if (!JOB_SLUG_RE.test(req.params.slug)) {
+      res.status(400).json({ error: 'Invalid job slug' });
+      return;
+    }
     if (!ctx.scheduler) {
       res.status(503).json({ error: 'Scheduler not running' });
       return;
@@ -238,6 +265,10 @@ export function createRoutes(ctx: RouteContext): Router {
       res.status(400).json({ error: '"text" field required' });
       return;
     }
+    if (text.length > 4096) {
+      res.status(400).json({ error: '"text" must be 4096 characters or fewer' });
+      return;
+    }
 
     try {
       await ctx.telegram.sendToTopic(topicId, text);
@@ -271,7 +302,10 @@ export function createRoutes(ctx: RouteContext): Router {
       res.json({ relationships: [] });
       return;
     }
-    const sortBy = (req.query.sort as 'significance' | 'recent' | 'name') || 'significance';
+    const rawSort = req.query.sort as string;
+    const sortBy = VALID_SORTS.includes(rawSort as typeof VALID_SORTS[number])
+      ? (rawSort as typeof VALID_SORTS[number])
+      : 'significance';
     res.json({ relationships: ctx.relationships.getAll(sortBy) });
   });
 
@@ -333,8 +367,16 @@ export function createRoutes(ctx: RouteContext): Router {
     }
 
     const { type, title, description, context } = req.body;
-    if (!title || !description) {
-      res.status(400).json({ error: '"title" and "description" are required' });
+    if (!title || typeof title !== 'string' || title.length > 500) {
+      res.status(400).json({ error: '"title" must be a string under 500 characters' });
+      return;
+    }
+    if (!description || typeof description !== 'string' || description.length > 10_000) {
+      res.status(400).json({ error: '"description" must be a string under 10KB' });
+      return;
+    }
+    if (context !== undefined && (typeof context !== 'string' || context.length > 5_000)) {
+      res.status(400).json({ error: '"context" must be a string under 5KB if provided' });
       return;
     }
 
@@ -438,7 +480,8 @@ export function createRoutes(ctx: RouteContext): Router {
   router.get('/events', (req, res) => {
     const rawLimit = parseInt(req.query.limit as string, 10) || 50;
     const limit = Math.min(Math.max(rawLimit, 1), 1000);
-    const type = req.query.type as string | undefined;
+    const rawType = req.query.type as string | undefined;
+    const type = rawType && rawType.length <= 64 ? rawType : undefined;
     const rawSinceHours = parseInt(req.query.since as string, 10) || 24;
     const sinceHours = Math.min(Math.max(rawSinceHours, 1), 720); // 1h to 30 days
 

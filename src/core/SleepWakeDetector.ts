@@ -44,6 +44,7 @@ export class SleepWakeDetector extends EventEmitter {
         this.emit('wake', { sleepDurationSeconds: sleepDuration, timestamp: new Date().toISOString() });
       }
     }, this.checkIntervalMs);
+    this.interval.unref(); // Don't prevent process exit in CLI contexts
   }
 
   stop(): void {
