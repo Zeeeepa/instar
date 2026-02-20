@@ -699,13 +699,15 @@ If everything looks healthy, exit silently. Only report issues.`,
  * Refresh hooks, Claude settings, and CLAUDE.md for an existing installation.
  * Called after updates to ensure new hooks and documentation are installed.
  * Re-writes all hook files (idempotent), merges new hooks into settings,
- * and appends any missing sections to CLAUDE.md.
+ * appends any missing sections to CLAUDE.md, and installs scripts for
+ * configured integrations (e.g., Telegram relay).
  */
 export function refreshHooksAndSettings(projectDir: string, stateDir: string): void {
   installHooks(stateDir);
   installClaudeSettings(projectDir);
   refreshClaudeMd(projectDir, stateDir);
   refreshJobs(stateDir);
+  refreshScripts(projectDir, stateDir);
 }
 
 /**
@@ -742,19 +744,119 @@ function refreshJobs(stateDir: string): void {
 }
 
 /**
+ * Read config.json from state dir, returning parsed config or null.
+ */
+function readConfig(stateDir: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(stateDir, 'config.json'), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if Telegram is configured in config.json.
+ */
+function isTelegramConfigured(stateDir: string): boolean {
+  const config = readConfig(stateDir);
+  if (!config) return false;
+  const messaging = config.messaging as Array<{ type: string; enabled: boolean }> | undefined;
+  return !!messaging?.some(m => m.type === 'telegram' && m.enabled);
+}
+
+/**
+ * Install scripts for configured integrations (e.g., Telegram relay).
+ * Called during refresh to ensure scripts exist for all configured integrations.
+ */
+function refreshScripts(projectDir: string, stateDir: string): void {
+  const config = readConfig(stateDir);
+  if (!config) return;
+  const port = (config.port as number) || 4040;
+
+  // Install telegram-reply.sh if Telegram is configured
+  if (isTelegramConfigured(stateDir)) {
+    installTelegramRelay(projectDir, port);
+  }
+}
+
+/**
+ * Install the Telegram relay script that Claude uses to send responses
+ * back to Telegram topics via the instar server API.
+ */
+function installTelegramRelay(projectDir: string, port: number): void {
+  const scriptsDir = path.join(projectDir, '.claude', 'scripts');
+  fs.mkdirSync(scriptsDir, { recursive: true });
+
+  const scriptContent = `#!/bin/bash
+# telegram-reply.sh — Send a message back to a Telegram topic via instar server.
+#
+# Usage:
+#   .claude/scripts/telegram-reply.sh TOPIC_ID "message text"
+#   echo "message text" | .claude/scripts/telegram-reply.sh TOPIC_ID
+#   cat <<'EOF' | .claude/scripts/telegram-reply.sh TOPIC_ID
+#   Multi-line message here
+#   EOF
+
+TOPIC_ID="$1"
+shift
+
+if [ -z "$TOPIC_ID" ]; then
+  echo "Usage: telegram-reply.sh TOPIC_ID [message]" >&2
+  exit 1
+fi
+
+# Read message from args or stdin
+if [ $# -gt 0 ]; then
+  MSG="$*"
+else
+  MSG="$(cat)"
+fi
+
+if [ -z "$MSG" ]; then
+  echo "No message provided" >&2
+  exit 1
+fi
+
+PORT="\${INSTAR_PORT:-${port}}"
+
+# Escape for JSON
+JSON_MSG=$(printf '%s' "$MSG" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null)
+if [ -z "$JSON_MSG" ]; then
+  # Fallback if python3 not available: basic escape
+  JSON_MSG="$(printf '%s' "$MSG" | sed 's/\\\\\\\\/\\\\\\\\\\\\\\\\/g; s/"/\\\\\\\\"/g' | sed ':a;N;$!ba;s/\\\\n/\\\\\\\\n/g')"
+  JSON_MSG="\\"$JSON_MSG\\""
+fi
+
+RESPONSE=$(curl -s -w "\\n%{http_code}" -X POST "http://localhost:\${PORT}/telegram/reply/\${TOPIC_ID}" \\
+  -H 'Content-Type: application/json' \\
+  -d "{\\"text\\":\${JSON_MSG}}")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" = "200" ]; then
+  echo "Sent $(echo "$MSG" | wc -c | tr -d ' ') chars to topic $TOPIC_ID"
+else
+  echo "Failed (HTTP $HTTP_CODE): $BODY" >&2
+  exit 1
+fi
+`;
+
+  const scriptPath = path.join(scriptsDir, 'telegram-reply.sh');
+  fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+}
+
+/**
  * Append missing sections to CLAUDE.md without overwriting user customizations.
  * Reads config.json for port, checks for known section headers, appends if missing.
+ * Also adds Telegram relay section if Telegram is configured.
  */
 function refreshClaudeMd(projectDir: string, stateDir: string): void {
   const claudeMdPath = path.join(projectDir, 'CLAUDE.md');
   if (!fs.existsSync(claudeMdPath)) return;
 
-  // Read port from config
-  let port = 4321;
-  try {
-    const config = JSON.parse(fs.readFileSync(path.join(stateDir, 'config.json'), 'utf-8'));
-    port = config.port || 4321;
-  } catch { /* use default port */ }
+  const config = readConfig(stateDir);
+  const port = (config?.port as number) || 4040;
 
   const content = fs.readFileSync(claudeMdPath, 'utf-8');
   const additions: string[] = [];
@@ -786,6 +888,23 @@ curl -s -X POST http://localhost:${port}/feedback \\
 Types: \`bug\`, \`feature\`, \`improvement\`, \`question\`
 
 **Do not wait for the user to notice.** If a hook throws an error, report it. If a job fails, report it. If the server returns unexpected data, report it. You are not just using instar — you are part of its immune system.
+`);
+  }
+
+  // Check for Telegram Relay section (add if Telegram is configured)
+  if (isTelegramConfigured(stateDir) && !content.includes('Telegram Relay')) {
+    additions.push(`
+## Telegram Relay
+
+When user input starts with \`[telegram:N]\`, the message came from a user via Telegram topic N. After responding, relay the response back:
+
+\`\`\`bash
+cat <<'EOF' | .claude/scripts/telegram-reply.sh N
+Your response text here
+EOF
+\`\`\`
+
+Strip the \`[telegram:N]\` prefix before interpreting the message. Only relay conversational text — not tool output.
 `);
   }
 

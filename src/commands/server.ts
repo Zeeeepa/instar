@@ -66,22 +66,20 @@ async function respawnSessionForTopic(
     console.error(`[telegram→session] Failed to fetch thread history:`, err);
   }
 
-  // Always keep the user's message inline — never hide it behind a file reference.
-  // Only thread history goes into a file for supplementary context.
+  // Single-line bootstrap to avoid tmux send-keys newline issues.
+  // Thread history and context go into temp files for Claude to read.
+  const tmpDir = '/tmp/instar-telegram';
+  fs.mkdirSync(tmpDir, { recursive: true });
+
   let bootstrapMessage: string;
 
   if (historyLines.length > 0) {
     const historyContent = historyLines.join('\n');
-    const tmpDir = '/tmp/instar-telegram';
-    fs.mkdirSync(tmpDir, { recursive: true });
     const filepath = path.join(tmpDir, `history-${topicId}-${Date.now()}-${process.pid}.txt`);
     fs.writeFileSync(filepath, historyContent);
 
-    bootstrapMessage = [
-      `[telegram:${topicId}] ${msg}`,
-      ``,
-      `(Session was respawned. Thread history is at ${filepath} — read it for context. Then RESPOND to the user's message above via Telegram relay.)`,
-    ].join('\n');
+    // Single-line: user message + file reference for history
+    bootstrapMessage = `[telegram:${topicId}] ${msg} (Session respawned. Thread history at ${filepath} — read it for context before responding.)`;
   } else {
     bootstrapMessage = `[telegram:${topicId}] ${msg}`;
   }
@@ -153,16 +151,24 @@ function wireTelegramRouting(
       console.log(`[telegram→session] No session for topic ${topicId}, auto-spawning...`);
       const storedName = telegram.getTopicName(topicId) || `topic-${topicId}`;
 
-      // Always keep the user's message inline — never hide it behind a file reference
-      const bootstrapMessage = [
-        `[telegram:${topicId}] ${text}`,
-        ``,
-        `(This session was auto-created for a Telegram topic. Respond to the user's message above via Telegram relay.)`,
-      ].join('\n');
+      // Single-line bootstrap to avoid tmux send-keys newline issues.
+      // Multi-line context is written to a temp file for Claude to read.
+      const contextLines = [
+        `This session was auto-created for Telegram topic ${topicId}.`,
+        `Respond to the user's message via Telegram relay: cat <<'EOF' | .claude/scripts/telegram-reply.sh ${topicId}`,
+        `Your response here`,
+        `EOF`,
+      ];
+      const tmpDir = '/tmp/instar-telegram';
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const ctxPath = path.join(tmpDir, `ctx-${topicId}-${Date.now()}.txt`);
+      fs.writeFileSync(ctxPath, contextLines.join('\n'));
+
+      const bootstrapMessage = `[telegram:${topicId}] ${text}`;
 
       sessionManager.spawnInteractiveSession(bootstrapMessage, storedName).then((newSessionName) => {
         telegram.registerTopicSession(topicId, newSessionName);
-        telegram.sendToTopic(topicId, `Session auto-created. I'm here.`).catch(() => {});
+        telegram.sendToTopic(topicId, `Session created.`).catch(() => {});
         console.log(`[telegram→session] Auto-spawned "${newSessionName}" for topic ${topicId}`);
       }).catch((err) => {
         console.error(`[telegram→session] Auto-spawn failed:`, err);

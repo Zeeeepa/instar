@@ -372,8 +372,14 @@ export class SessionManager extends EventEmitter {
       this.waitForClaudeReady(tmuxSession).then((ready) => {
         if (ready) {
           this.injectMessage(tmuxSession, initialMessage);
+          console.log(`[SessionManager] Injected initial message into "${tmuxSession}" (${initialMessage.length} chars)`);
         } else {
-          console.error(`[SessionManager] Claude not ready in session "${tmuxSession}" after timeout`);
+          console.error(`[SessionManager] Claude not ready in session "${tmuxSession}" — message NOT injected. Session may need manual intervention.`);
+          // Still try to inject — Claude might be ready but prompt detection failed
+          if (this.tmuxSessionExists(tmuxSession)) {
+            console.log(`[SessionManager] Session "${tmuxSession}" still alive — attempting injection anyway`);
+            this.injectMessage(tmuxSession, initialMessage);
+          }
         }
       }).catch((err) => {
         console.error(`[SessionManager] Error waiting for Claude ready in "${tmuxSession}": ${err}`);
@@ -409,19 +415,45 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Send text to a tmux session via send-keys.
-   * Uses -l (literal) flag for text, then sends Enter separately.
+   * For single-line text, uses -l (literal) flag directly.
+   * For multi-line text, writes to a temp file and uses tmux load-buffer/paste-buffer
+   * to avoid newlines being interpreted as Enter keypresses.
    */
   private injectMessage(tmuxSession: string, text: string): void {
     const exactTarget = `=${tmuxSession}:`;
     try {
-      // Send the text literally
-      execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, '-l', text], {
-        encoding: 'utf-8', timeout: 5000,
-      });
-      // Send Enter separately
-      execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, 'Enter'], {
-        encoding: 'utf-8', timeout: 5000,
-      });
+      if (text.includes('\n')) {
+        // Multi-line: write to temp file, load into tmux buffer, paste into pane.
+        // This avoids newlines being treated as Enter keypresses which would
+        // fragment the message into multiple Claude prompts.
+        const tmpDir = path.join('/tmp', 'instar-inject');
+        fs.mkdirSync(tmpDir, { recursive: true });
+        const tmpPath = path.join(tmpDir, `msg-${Date.now()}-${process.pid}.txt`);
+        fs.writeFileSync(tmpPath, text);
+        try {
+          execFileSync(this.config.tmuxPath, ['load-buffer', tmpPath], {
+            encoding: 'utf-8', timeout: 5000,
+          });
+          execFileSync(this.config.tmuxPath, ['paste-buffer', '-t', exactTarget, '-p'], {
+            encoding: 'utf-8', timeout: 5000,
+          });
+          // Send Enter to submit
+          execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, 'Enter'], {
+            encoding: 'utf-8', timeout: 5000,
+          });
+        } finally {
+          try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+        }
+      } else {
+        // Single-line: simple send-keys
+        execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, '-l', text], {
+          encoding: 'utf-8', timeout: 5000,
+        });
+        // Send Enter separately
+        execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, 'Enter'], {
+          encoding: 'utf-8', timeout: 5000,
+        });
+      }
     } catch (err) {
       console.error(`[SessionManager] Failed to inject message into ${tmuxSession}: ${err}`);
     }
@@ -429,20 +461,29 @@ export class SessionManager extends EventEmitter {
 
   /**
    * Wait for Claude to be ready in a tmux session by polling output.
+   * Looks for Claude Code's prompt character (❯) which appears when ready for input.
    */
-  private async waitForClaudeReady(tmuxSession: string, timeoutMs: number = 15000): Promise<boolean> {
+  private async waitForClaudeReady(tmuxSession: string, timeoutMs: number = 30000): Promise<boolean> {
     const start = Date.now();
     // Wait a minimum startup delay before checking (Claude needs time to load)
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000));
     while (Date.now() - start < timeoutMs) {
+      if (!this.tmuxSessionExists(tmuxSession)) {
+        console.error(`[SessionManager] Session "${tmuxSession}" died during startup`);
+        return false;
+      }
       const output = this.captureOutput(tmuxSession, 10);
       // Check for Claude Code's specific prompt character (❯)
       // Avoid matching generic shell prompts (> and $) which cause false positives
       if (output && output.includes('❯')) {
+        console.log(`[SessionManager] Claude ready in "${tmuxSession}" after ${Date.now() - start}ms`);
         return true;
       }
       await new Promise(r => setTimeout(r, 500));
     }
+    // Log what we see on timeout for debugging
+    const finalOutput = this.captureOutput(tmuxSession, 20);
+    console.error(`[SessionManager] Claude not ready in "${tmuxSession}" after ${timeoutMs}ms. Output: ${(finalOutput || '').slice(-200)}`);
     return false;
   }
 
