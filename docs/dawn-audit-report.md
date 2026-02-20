@@ -3,6 +3,8 @@
 **Date**: 2026-02-18
 **Purpose**: Map what Dawn has built and discovered against instar's current state. Identify gaps and integration opportunities.
 
+> **Note (2026-02-20)**: This audit was conducted against v0.1.6. The v0.1.11 crucible review (see CRUCIBLE-REPORT-20260220.md) addressed many gaps identified here: hooks now ship with `instar init`, auth middleware enforces Bearer tokens on all non-health endpoints, `instar add` subcommands are implemented, and 880 tests cover all source files.
+
 ---
 
 ## Executive Summary

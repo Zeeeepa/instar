@@ -235,7 +235,7 @@ Spawns the real Claude Code CLI. Never extracts, proxies, or spoofs OAuth tokens
 | **Workflows** | Lobster DSL (pipelines, approval gates) | Claude Code skill system |
 | **Model providers** | 12+ (Anthropic, OpenAI, Gemini, Bedrock, etc.) | Claude-only (via Claude Code) |
 | **Deployment** | Docker, Fly.io, Railway, GCP, Hetzner, etc. | tmux on any machine with Node.js |
-| **Testing** | Not documented | 647 tests (unit + integration + e2e) |
+| **Testing** | Not documented | 880 tests (unit + integration + e2e) |
 | **Target user** | Anyone wanting AI assistant | Developers building with Claude Code |
 
 ---
@@ -303,4 +303,4 @@ Everything else:
 
 ---
 
-*This document compares Instar (v0.1.10) against OpenClaw as studied from both the open-source repository and full documentation site (docs.openclaw.ai) in February 2026. Both projects are actively evolving.*
+*This document compares Instar (v0.1.11) against OpenClaw as studied from both the open-source repository and full documentation site (docs.openclaw.ai) in February 2026. Both projects are actively evolving.*
