@@ -37,11 +37,25 @@ export function detectTmuxPath(): string | null {
 }
 
 export function detectClaudePath(): string | null {
+  const home = process.env.HOME || '';
   const candidates = [
-    path.join(process.env.HOME || '', '.claude', 'local', 'claude'),
+    path.join(home, '.claude', 'local', 'claude'),
     '/usr/local/bin/claude',
     '/opt/homebrew/bin/claude',
   ];
+
+  // Also check npm global bin directory (where `npm install -g` puts things)
+  try {
+    const npmPrefix = execSync('npm config get prefix', { encoding: 'utf-8', stdio: 'pipe' }).trim();
+    if (npmPrefix) {
+      candidates.push(path.join(npmPrefix, 'bin', 'claude'));
+    }
+  } catch { /* ignore */ }
+
+  // Check nvm/fnm managed paths
+  if (process.env.NVM_BIN) {
+    candidates.push(path.join(process.env.NVM_BIN, 'claude'));
+  }
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
@@ -49,7 +63,7 @@ export function detectClaudePath(): string | null {
 
   // Fallback: check PATH
   try {
-    const result = execSync('which claude', { encoding: 'utf-8' }).trim();
+    const result = execSync('which claude', { encoding: 'utf-8', stdio: 'pipe' }).trim();
     if (result && fs.existsSync(result)) return result;
   } catch {
     // claude not found
