@@ -94,6 +94,55 @@ async function respawnSessionForTopic(
 }
 
 /**
+ * Wire up Telegram session management callbacks.
+ * These enable /interrupt, /restart, /sessions commands and stall detection.
+ */
+function wireTelegramCallbacks(
+  telegram: TelegramAdapter,
+  sessionManager: SessionManager,
+  state: StateManager,
+): void {
+  // /interrupt — send Escape key to a tmux session
+  telegram.onInterruptSession = async (sessionName: string): Promise<boolean> => {
+    try {
+      execFileSync(detectTmuxPath()!, ['send-keys', '-t', `=${sessionName}:`, 'Escape'], {
+        encoding: 'utf-8', timeout: 5000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // /restart — kill session and respawn
+  telegram.onRestartSession = async (sessionName: string, topicId: number): Promise<void> => {
+    // Kill existing session
+    try {
+      execFileSync(detectTmuxPath()!, ['kill-session', '-t', `=${sessionName}`], { stdio: 'ignore' });
+    } catch { /* may already be dead */ }
+
+    // Respawn with thread history
+    await respawnSessionForTopic(sessionManager, telegram, sessionName, topicId);
+  };
+
+  // /sessions — list running sessions
+  telegram.onListSessions = () => {
+    const sessions = state.listSessions({ status: 'running' });
+    return sessions.map(s => ({
+      name: s.name,
+      tmuxSession: s.tmuxSession,
+      status: s.status,
+      alive: sessionManager.isSessionAlive(s.tmuxSession),
+    }));
+  };
+
+  // Stall detection — check if a session is alive
+  telegram.onIsSessionAlive = (sessionName: string): boolean => {
+    return sessionManager.isSessionAlive(sessionName);
+  };
+}
+
+/**
  * Wire up Telegram message routing: topic messages → Claude sessions.
  * This is the core handler that makes Telegram topics work like sessions.
  */
@@ -107,7 +156,8 @@ function wireTelegramRouting(
 
     const text = msg.content;
 
-    // Handle /new command — spawn a new session with its own topic
+    // Most commands are handled inside TelegramAdapter.handleCommand().
+    // /new is handled here because it needs sessionManager access.
     const newMatch = text.match(/^\/new(?:\s+(.+))?$/);
     if (newMatch) {
       const sessionName = newMatch[1]?.trim() || null;
@@ -140,6 +190,8 @@ function wireTelegramRouting(
       if (sessionManager.isSessionAlive(targetSession)) {
         console.log(`[telegram→session] Injecting into ${targetSession}: "${text.slice(0, 80)}"`);
         sessionManager.injectTelegramMessage(targetSession, topicId, text);
+        // Track for stall detection
+        telegram.trackMessageInjection(topicId, targetSession, text);
       } else {
         // Session died — respawn with thread history
         respawnSessionForTopic(sessionManager, telegram, targetSession, topicId, text).catch(err => {
@@ -282,8 +334,9 @@ export async function startServer(options: StartOptions): Promise<void> {
       await telegram.start();
       console.log(pc.green('  Telegram connected'));
 
-      // Wire up topic → session routing
+      // Wire up topic → session routing and session management callbacks
       wireTelegramRouting(telegram, sessionManager);
+      wireTelegramCallbacks(telegram, sessionManager, state);
       console.log(pc.green('  Telegram message routing active'));
 
       if (scheduler) {

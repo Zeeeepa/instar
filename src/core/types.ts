@@ -179,8 +179,8 @@ export interface MessagingAdapter {
   start(): Promise<void>;
   /** Stop listening */
   stop(): Promise<void>;
-  /** Send a message to a user */
-  send(message: OutgoingMessage): Promise<void>;
+  /** Send a message to a user. Returns platform-specific delivery info. */
+  send(message: OutgoingMessage): Promise<void | unknown>;
   /** Register a handler for incoming messages */
   onMessage(handler: (message: Message) => Promise<void>): void;
   /** Resolve a platform-specific identifier to a user ID */

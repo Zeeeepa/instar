@@ -126,7 +126,7 @@ describe('TelegramAdapter messaging', () => {
       expect(entry.topicId).toBe(42);
       expect(entry.text).toBe('Logged message');
       expect(entry.fromUser).toBe(false);
-      expect(entry.messageId).toBe(0);
+      expect(entry.messageId).toBe(1);
       expect(entry.timestamp).toBeTruthy();
     });
 
