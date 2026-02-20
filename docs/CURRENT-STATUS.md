@@ -85,6 +85,13 @@ src/
 - API keys recommended for production/commercial use
 - Full analysis documented in Telegram topic 1307 thread
 
+## Design Principles (Earned Through Building)
+
+1. **Agent-first language** — The setup wizard never tells users to memorize CLI commands. After `instar server start`, you talk to your agent. "Ask your agent to create a job" not "run `instar job add`".
+2. **Identity is infrastructure, not a file** — SOUL.md is a file. Instar's identity system is hooks that re-inject identity on session start, after compaction, and before messaging. Structure over willpower.
+3. **Different category from OpenClaw** — They're messaging middleware ("AI assistant everywhere"). We're autonomy infrastructure ("give your agent a body"). Don't try to match their 20+ channels. Win on depth: runtime, multi-session, identity, self-evolution, relationships.
+4. **Full OpenClaw analysis**: `.claude/drafts/openclaw-deep-analysis.md`
+
 ## What Needs Doing
 
 ### Critical (Ship-Blocking)
@@ -92,9 +99,10 @@ src/
 - [ ] License decision (currently UNLICENSED)
 - [ ] Make GitHub repo public (currently private)
 - [ ] Landing page / website at instar.sh
-- [ ] README polish for public launch
+- [x] README polish — OpenClaw comparison section added (0.1.5)
 
 ### Important (Quality)
+- [x] Agent-first language in setup wizard (0.1.6)
 - [ ] Integration tests need real tmux (currently mocked)
 - [ ] E2E test for full lifecycle (init → server start → spawn session → job runs)
 - [ ] Error handling for edge cases (tmux server death, Claude Code not logged in)
@@ -106,3 +114,9 @@ src/
 - [ ] Email adapter
 - [ ] Web dashboard for monitoring
 - [ ] `instar upgrade` command for self-updating
+
+### Learned from OpenClaw (worth considering)
+- [ ] DM pairing flow for new contacts (temporary codes with expiry)
+- [ ] Security audit CLI (`instar security audit`)
+- [ ] Auth profile rotation with failover
+- [ ] Streaming chunker (code-fence-aware, break preference hierarchy)

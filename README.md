@@ -67,7 +67,7 @@ Every person the agent interacts with -- across any channel or platform -- gets 
 - Context injection before interactions -- the agent *knows* who it's talking to
 - Stale relationship detection -- who hasn't been contacted in a while?
 
-Relationships aren't a plugin. They're how the agent understands its world.
+OpenClaw has sophisticated memory retrieval -- hybrid BM25 + vector search with temporal decay. But it remembers *conversations*. Instar understands *relationships*. Different optimization targets: they optimize for retrieving relevant past context, we optimize for understanding the humans in the agent's world.
 
 ### Self-evolution
 
@@ -75,13 +75,22 @@ The agent can edit its own job definitions, write new scripts, update its identi
 
 Instar also ships with default coherence jobs that run out of the box -- health checks, reflection triggers, relationship maintenance. These give the agent a circadian rhythm: regular self-maintenance without user intervention.
 
-### What OpenClaw does that Instar doesn't (yet)
+### What OpenClaw does that Instar doesn't
 
-To be fair: OpenClaw has 20+ messaging adapters, native device apps (macOS/iOS/Android), voice wake, Docker sandboxing, and a skill marketplace. Instar currently supports Telegram only, with Slack and Discord planned.
+To be fair -- OpenClaw has real strengths in areas Instar doesn't cover:
 
-These are different categories. OpenClaw asks: *"How can I be your AI assistant everywhere?"* Instar asks: *"How can your Claude Code agent get a persistent body?"* If you want an AI assistant across every messaging platform with voice support, that's OpenClaw's vision. If you want your Claude Code agent to keep running when you close your laptop -- with scheduled jobs, persistent memory, genuine relationships, and the infrastructure to grow autonomously -- that's Instar.
+- **20+ messaging channels** with deep per-channel configuration (DM policies, group policies, media handling, streaming). This is their core product and it's mature.
+- **Docker sandboxing** with a 3×3 mode/scope matrix, tool policy profiles, and a `security audit --fix` CLI. Production-grade security for multi-user environments.
+- **Voice/TTS** via ElevenLabs with interrupt-on-speech and continuous talk mode. A real product feature, not a demo.
+- **Multi-agent routing** -- run multiple agents from one gateway with deterministic priority-based routing.
 
-Different tools for different needs. But only one of them works today.
+Some claimed features are less proven than they appear: the iOS app is explicitly "internal preview, not publicly available." Voice wake documentation returns 404. The 50 bundled skills are listed on the features page but not individually documented. ClawHub marketplace exists but community activity is unknown.
+
+Instar currently supports Telegram only, with Slack and Discord planned. We don't aim to match 20+ channels -- that's OpenClaw's category, not ours.
+
+These are different tools for different needs. OpenClaw asks: *"How can I be your AI assistant everywhere?"* Instar asks: *"How can your Claude Code agent get a persistent body?"* OpenClaw optimizes for **ubiquity** -- AI across every messaging platform. Instar optimizes for **autonomy** -- an agent that runs, remembers, grows, and evolves.
+
+Different categories. But only one of them works today.
 
 ## Quick Start
 
