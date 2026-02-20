@@ -66,7 +66,8 @@ export class FeedbackManager {
         const payload = {
           id: feedback.id,
           type: feedback.type,
-          message: feedback.message,
+          title: feedback.title,
+          description: feedback.description,
           submittedAt: feedback.submittedAt,
         };
         const response = await fetch(this.config.webhookUrl, {
@@ -127,7 +128,8 @@ export class FeedbackManager {
         const payload = {
           id: item.id,
           type: item.type,
-          message: item.message,
+          title: item.title,
+          description: item.description,
           submittedAt: item.submittedAt,
         };
         const response = await fetch(this.config.webhookUrl, {
