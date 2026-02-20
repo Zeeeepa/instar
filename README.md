@@ -187,7 +187,11 @@ The goal: make it possible for anyone to give their Claude Code project the kind
 - Node.js 18+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
 - tmux (`brew install tmux` on macOS, `apt install tmux` on Linux)
-- A Claude subscription (Max or Pro) -- Instar uses your existing subscription, not API keys
+- Claude authentication -- either:
+  - An [Anthropic API key](https://console.anthropic.com/) (recommended for production/commercial use)
+  - A Claude subscription (Max or Pro) with Claude Code logged in (for personal use)
+
+Instar spawns the official Claude Code CLI and respects whatever authentication you have configured. It never extracts or proxies your credentials.
 
 ## License
 

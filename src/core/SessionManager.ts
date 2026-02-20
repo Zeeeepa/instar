@@ -92,9 +92,8 @@ export class SessionManager extends EventEmitter {
     claudeArgs.push('-p', options.prompt);
 
     // Create tmux session and run claude
-    // Unset ANTHROPIC_* env vars so Claude uses OAuth (subscription) not API key
-    const cleanEnv = 'unset ANTHROPIC_API_KEY ANTHROPIC_ADMIN_KEY CLAUDECODE;';
-    const claudeCmd = `${cleanEnv} ${this.config.claudePath} ${claudeArgs.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`;
+    // Respect the user's configured auth method (API key or OAuth subscription)
+    const claudeCmd = `${this.config.claudePath} ${claudeArgs.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`;
     const tmuxCmd = [
       this.config.tmuxPath,
       'new-session',
@@ -269,9 +268,9 @@ export class SessionManager extends EventEmitter {
       return tmuxSession;
     }
 
-    // Unset ANTHROPIC_* env vars so Claude uses OAuth (subscription) not API key
+    // Respect the user's configured auth method (API key or OAuth subscription)
     const claudeCmd = `${this.config.claudePath} --dangerously-skip-permissions`;
-    const shellCmd = `cd '${this.config.projectDir}' && unset ANTHROPIC_API_KEY ANTHROPIC_ADMIN_KEY CLAUDECODE && ${claudeCmd}`;
+    const shellCmd = `cd '${this.config.projectDir}' && ${claudeCmd}`;
     const tmuxCmd = `${this.config.tmuxPath} new-session -d -s '${tmuxSession}' -x 200 -y 50 'bash -c "${shellCmd.replace(/"/g, '\\"')}"'`;
 
     try {
