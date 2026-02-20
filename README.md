@@ -71,7 +71,8 @@ instar add sentry --dsn https://key@o0.ingest.sentry.io/0
 # Users and jobs
 instar user add --id alice --name "Alice" [--telegram 123] [--email a@b.com]
 instar user list
-instar job add --slug check-email --name "Email Check" --schedule "0 */2 * * *"
+instar job add --slug check-email --name "Email Check" --schedule "0 */2 * * *" \
+  [--description "..."] [--priority high] [--model sonnet]
 instar job list
 
 # Feedback
@@ -127,7 +128,7 @@ Anthropic's policy: OAuth tokens are for Claude Code and claude.ai only. Project
 | **What it is** | AI assistant framework | Autonomy infrastructure |
 | **Runtime** | Pi SDK (API wrapper) | Claude Code (full dev environment) |
 | **Sessions** | Single gateway | Multiple parallel Claude Code instances |
-| **Identity** | SOUL.md (file) | Multi-file + hooks + compaction recovery |
+| **Identity** | SOUL.md (file) | Multi-file + behavioral hooks + CLAUDE.md instructions |
 | **Memory** | Hybrid vector search | Relationship-centric (cross-platform, significance) |
 | **Messaging** | 20+ channels | Telegram (Slack/Discord planned) |
 | **Voice** | ElevenLabs TTS, talk mode | -- |
@@ -189,17 +190,20 @@ Jobs can be **prompts** (Claude sessions), **scripts** (shell commands), or **sk
 Spawn, monitor, and communicate with Claude Code sessions running in tmux.
 
 ```bash
-# Spawn a session
+# Spawn a session (auth token from .instar/config.json)
 curl -X POST http://localhost:4040/sessions/spawn \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_AUTH_TOKEN' \
   -d '{"name": "research", "prompt": "Research the latest changes to the Next.js API"}'
 
 # Send a follow-up
 curl -X POST http://localhost:4040/sessions/research/input \
+  -H 'Authorization: Bearer YOUR_AUTH_TOKEN' \
   -d '{"text": "Focus on the app router changes"}'
 
 # Check output
-curl http://localhost:4040/sessions/research/output
+curl http://localhost:4040/sessions/research/output \
+  -H 'Authorization: Bearer YOUR_AUTH_TOKEN'
 ```
 
 Sessions survive terminal disconnects, detect completion automatically, and clean up after themselves.
@@ -263,10 +267,10 @@ Every Instar agent has a persistent identity that survives context compressions,
 
 But identity isn't just files. It's **infrastructure**:
 
-- **Session-start hooks** re-inject identity before the agent does anything
-- **Compaction recovery** restores identity when context compresses
-- **Grounding before messaging** forces identity re-read before external communication
-- **Dangerous command guards** block `rm -rf`, force push, database drops
+- **Session-start scripts** re-inject identity reminders at session begin
+- **Compaction recovery scripts** restore identity when context compresses
+- **Grounding before messaging** forces identity re-read before external communication (automatic hook)
+- **Dangerous command guards** block `rm -rf`, force push, database drops (automatic hook)
 
 These aren't suggestions. They're structural guarantees. Structure over willpower.
 
@@ -292,14 +296,14 @@ The agent can edit its own job definitions, write new scripts, update its identi
 
 ### Behavioral Hooks
 
-Hooks that fire automatically to enforce patterns:
+Automatic hooks fire via Claude Code's hook system. Reference scripts are installed for the agent to use on demand:
 
-| Hook | What it does |
-|------|-------------|
-| **Session start** | Injects identity context before the agent does anything |
-| **Dangerous command guard** | Blocks destructive operations structurally |
-| **Grounding before messaging** | Forces identity re-read before external communication |
-| **Compaction recovery** | Restores identity when context compresses |
+| Hook | Type | What it does |
+|------|------|-------------|
+| **Dangerous command guard** | Automatic (PreToolUse) | Blocks destructive operations structurally |
+| **Grounding before messaging** | Automatic (PreToolUse) | Forces identity re-read before external communication |
+| **Session start** | Reference script | Injects identity context -- run at session start via CLAUDE.md instructions |
+| **Compaction recovery** | Reference script | Restores identity when context compresses -- referenced in CLAUDE.md |
 
 ### Default Coherence Jobs
 
@@ -342,9 +346,13 @@ One agent's growing pain becomes every agent's growth.
   AGENT.md                # Agent identity (who am I?)
   USER.md                 # User context (who am I working with?)
   MEMORY.md               # Persistent learnings across sessions
+  hooks/                  # Behavioral scripts (guards, identity injection)
   state/                  # Runtime state (sessions, jobs)
   relationships/          # Per-person relationship files
   logs/                   # Server logs
+.claude/                  # Claude Code configuration
+  settings.json           # Hook registrations
+  scripts/                # Health watchdog, Telegram relay
 ```
 
 Everything is file-based. No database. JSON state files the agent can read and modify. tmux for session management -- battle-tested, survives disconnects, fully scriptable.

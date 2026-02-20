@@ -39,7 +39,7 @@ Persistent autonomy infrastructure for AI agents. Gives Claude Code a persistent
 - Quota tracking (file-based state reading, threshold-based load shedding for job scheduler)
 - Input validation on all API endpoints (name/prompt/text length limits, model enum validation)
 - Full project scaffolding (AGENT.md, USER.md, MEMORY.md, CLAUDE.md, hooks, scripts)
-- 584+ tests passing (unit + integration + e2e across 56+ test files)
+- 593+ tests passing (unit + integration + e2e across 57+ test files)
 - `.npmignore` configured to exclude tests, docs, source, dev files
 
 ### Architecture
@@ -51,9 +51,13 @@ Persistent autonomy infrastructure for AI agents. Gives Claude Code a persistent
   AGENT.md              # Agent identity (who am I?)
   USER.md               # User context (who am I working with?)
   MEMORY.md             # Persistent learnings
+  hooks/                # Behavioral scripts (guards, identity injection)
   state/                # Runtime state (sessions, jobs)
   relationships/        # Per-person relationship files
   logs/                 # Server logs
+.claude/                # Claude Code configuration
+  settings.json         # Hook registrations
+  scripts/              # Health watchdog, Telegram relay
 
 src/
   core/                 # Config, SessionManager, StateManager, Prerequisites,
@@ -64,7 +68,7 @@ src/
   messaging/            # TelegramAdapter
   monitoring/           # HealthChecker, QuotaTracker
   scaffold/             # bootstrap (identity), templates (file generation)
-  templates/            # Default job definitions, hook scripts, helper scripts
+  templates/            # Hook scripts, helper scripts, Claude settings template
   commands/             # CLI: init, setup, server, status, user, job, add, feedback
   users/                # UserManager
 ```
