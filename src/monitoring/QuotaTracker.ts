@@ -49,6 +49,9 @@ export class QuotaTracker {
 
     try {
       if (!fs.existsSync(this.config.quotaFile)) {
+        if (!this.cachedState) {
+          console.warn('[quota] No quota state file found — all jobs will run (fail-open)');
+        }
         return null;
       }
 
@@ -60,6 +63,7 @@ export class QuotaTracker {
       const lastUpdated = new Date(state.lastUpdated).getTime();
       if ((now - lastUpdated) > maxStale) {
         // Stale data — return it but mark recommendation as unknown
+        console.warn(`[quota] Stale data (${Math.round((now - lastUpdated) / 60000)}m old) — using cached but clearing recommendation`);
         state.recommendation = undefined;
       }
 
@@ -113,10 +117,15 @@ export class QuotaTracker {
   updateState(state: QuotaState): void {
     const dir = path.dirname(this.config.quotaFile);
     fs.mkdirSync(dir, { recursive: true });
-    // Atomic write: write to .tmp then rename
-    const tmpPath = this.config.quotaFile + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
-    fs.renameSync(tmpPath, this.config.quotaFile);
+    // Atomic write: unique temp filename to prevent concurrent corruption
+    const tmpPath = this.config.quotaFile + `.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
+      fs.renameSync(tmpPath, this.config.quotaFile);
+    } catch (err) {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+      throw err;
+    }
     this.cachedState = state;
     this.lastRead = Date.now();
   }

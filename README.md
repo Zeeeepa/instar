@@ -198,6 +198,7 @@ curl -X POST http://localhost:4040/sessions/spawn \
 
 # Send a follow-up
 curl -X POST http://localhost:4040/sessions/research/input \
+  -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer YOUR_AUTH_TOKEN' \
   -d '{"text": "Focus on the app router changes"}'
 
@@ -296,14 +297,14 @@ The agent can edit its own job definitions, write new scripts, update its identi
 
 ### Behavioral Hooks
 
-Automatic hooks fire via Claude Code's hook system. Reference scripts are installed for the agent to use on demand:
+Automatic hooks fire via Claude Code's hook system:
 
 | Hook | Type | What it does |
 |------|------|-------------|
-| **Dangerous command guard** | Automatic (PreToolUse) | Blocks destructive operations structurally |
-| **Grounding before messaging** | Automatic (PreToolUse) | Forces identity re-read before external communication |
-| **Session start** | Reference script | Injects identity context -- run at session start via CLAUDE.md instructions |
-| **Compaction recovery** | Reference script | Restores identity when context compresses -- referenced in CLAUDE.md |
+| **Dangerous command guard** | PreToolUse (blocking) | Blocks destructive operations structurally |
+| **Grounding before messaging** | PreToolUse (advisory) | Forces identity re-read before external communication |
+| **Session start** | PostToolUse | Injects identity context at session start |
+| **Compaction recovery** | Notification (compact) | Restores identity when context compresses |
 
 ### Default Coherence Jobs
 

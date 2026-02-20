@@ -7,7 +7,7 @@
  * Uses `npm view instar version` to check the registry.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { UpdateInfo } from './types.js';
@@ -23,17 +23,14 @@ export class UpdateChecker {
 
   /**
    * Check npm for the latest version and compare to installed.
+   * Fully async — never blocks the event loop.
    */
   async check(): Promise<UpdateInfo> {
     const currentVersion = this.getInstalledVersion();
     let latestVersion: string;
 
     try {
-      latestVersion = execFileSync('npm', ['view', 'instar', 'version'], {
-        encoding: 'utf-8',
-        timeout: 15000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
+      latestVersion = await this.execAsync('npm', ['view', 'instar', 'version'], 15000);
     } catch {
       // Offline or registry error — return last known state
       const lastState = this.getLastCheck();
@@ -89,18 +86,24 @@ export class UpdateChecker {
       }
     } catch { /* fallback below */ }
 
-    // Fallback: try npm list
-    try {
-      const output = execFileSync('npm', ['list', '-g', 'instar', '--json'], {
+    return '0.0.0';
+  }
+
+  /**
+   * Run a command asynchronously, returning trimmed stdout.
+   */
+  private execAsync(cmd: string, args: string[], timeoutMs: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const child = execFile(cmd, args, {
         encoding: 'utf-8',
-        timeout: 10000,
-        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: timeoutMs,
+      }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve((stdout || '').trim());
       });
-      const data = JSON.parse(output);
-      return data.dependencies?.instar?.version || '0.0.0';
-    } catch {
-      return '0.0.0';
-    }
+      // Safety: ensure child doesn't leak if parent is GC'd
+      child.unref?.();
+    });
   }
 
   /**
@@ -122,9 +125,14 @@ export class UpdateChecker {
   private saveState(info: UpdateInfo): void {
     const dir = path.dirname(this.stateFile);
     fs.mkdirSync(dir, { recursive: true });
-    // Atomic write: write to .tmp then rename
-    const tmpPath = this.stateFile + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(info, null, 2));
-    fs.renameSync(tmpPath, this.stateFile);
+    // Atomic write: unique temp filename to prevent concurrent corruption
+    const tmpPath = this.stateFile + `.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(info, null, 2));
+      fs.renameSync(tmpPath, this.stateFile);
+    } catch (err) {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+      throw err;
+    }
   }
 }

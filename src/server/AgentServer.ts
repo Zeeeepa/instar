@@ -87,17 +87,27 @@ export class AgentServer {
 
   /**
    * Stop the HTTP server gracefully.
+   * Closes keep-alive connections after a timeout to prevent hanging.
    */
   async stop(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       if (!this.server) {
         resolve();
         return;
       }
-      this.server.close((err) => {
-        if (err) reject(err);
-        else resolve();
+
+      // Force-close after 5 seconds if graceful close hangs (keep-alive connections)
+      const forceTimer = setTimeout(() => {
+        console.log('[instar] Force-closing server (keep-alive timeout)');
+        this.server?.closeAllConnections?.();
         this.server = null;
+        resolve();
+      }, 5000);
+
+      this.server.close(() => {
+        clearTimeout(forceTimer);
+        this.server = null;
+        resolve();
       });
     });
   }

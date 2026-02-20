@@ -345,10 +345,47 @@ export async function stopServer(options: { dir?: string }): Promise<void> {
     process.exit(1);
   }
 
+  // Check if the session exists
   try {
-    execFileSync(tmuxPath, ['kill-session', '-t', `=${serverSessionName}`], { stdio: 'ignore' });
-    console.log(pc.green(`Server stopped (killed tmux session: ${serverSessionName})`));
+    execFileSync(tmuxPath, ['has-session', '-t', `=${serverSessionName}`], { stdio: 'ignore' });
   } catch {
     console.log(pc.yellow(`No server running (no tmux session: ${serverSessionName})`));
+    return;
+  }
+
+  // Send SIGTERM first for graceful shutdown, then force kill after timeout
+  try {
+    // Send C-c (SIGINT) to the foreground process in the session
+    execFileSync(tmuxPath, ['send-keys', '-t', `=${serverSessionName}:`, 'C-c', ''], { stdio: 'ignore' });
+    console.log(`  Sent shutdown signal to ${serverSessionName}...`);
+
+    // Wait up to 5 seconds for graceful shutdown
+    let stopped = false;
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      try {
+        execFileSync(tmuxPath, ['has-session', '-t', `=${serverSessionName}`], { stdio: 'ignore' });
+        // Still running
+      } catch {
+        stopped = true;
+        break;
+      }
+    }
+
+    if (!stopped) {
+      // Force kill after graceful timeout
+      execFileSync(tmuxPath, ['kill-session', '-t', `=${serverSessionName}`], { stdio: 'ignore' });
+      console.log(pc.yellow(`  Forced kill after graceful shutdown timeout`));
+    }
+
+    console.log(pc.green(`Server stopped (session: ${serverSessionName})`));
+  } catch {
+    // Fallback: force kill
+    try {
+      execFileSync(tmuxPath, ['kill-session', '-t', `=${serverSessionName}`], { stdio: 'ignore' });
+      console.log(pc.green(`Server stopped (forced kill: ${serverSessionName})`));
+    } catch {
+      console.log(pc.yellow(`No server running (no tmux session: ${serverSessionName})`));
+    }
   }
 }
