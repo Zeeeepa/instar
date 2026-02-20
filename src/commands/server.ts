@@ -318,7 +318,13 @@ export async function startServer(options: StartOptions): Promise<void> {
       console.log(pc.green('  Dispatch system enabled'));
     }
 
-    const updateChecker = new UpdateChecker(config.stateDir);
+    const updateChecker = new UpdateChecker({
+      stateDir: config.stateDir,
+      projectDir: config.projectDir,
+      port: config.port,
+      hasTelegram: config.messaging.some(m => m.type === 'telegram' && m.enabled),
+      projectName: config.projectName,
+    });
 
     // Check for updates on startup
     updateChecker.check().then(info => {

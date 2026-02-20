@@ -492,6 +492,16 @@ This routes feedback to the Instar maintainers automatically. Valid types: \`bug
 
 **Scripts** — Create shell/python scripts in \`.claude/scripts/\` for reusable capabilities.
 
+### Self-Discovery (Know Before You Claim)
+
+Before EVER saying "I don't have", "I can't", or "this isn't available" — check what actually exists:
+
+\`\`\`bash
+curl http://localhost:${port}/capabilities
+\`\`\`
+
+This returns your full capability matrix: scripts, hooks, Telegram status, jobs, relationships, and more. It is the source of truth about what you can do. **Never hallucinate about missing capabilities — verify first.**
+
 ### How to Build New Capabilities
 
 When a user asks for something you can't do yet, **build it**:
@@ -809,6 +819,17 @@ if [ -d "$INSTAR_DIR/relationships" ]; then
   fi
 fi
 CONTEXT="\${CONTEXT}IMPORTANT: To report bugs or request features, use POST /feedback on your local server. NEVER use gh or GitHub directly.\\n"
+
+# Self-discovery: check what capabilities are available
+if [ -f "$INSTAR_DIR/config.json" ]; then
+  PORT=$(python3 -c "import json; print(json.load(open('$INSTAR_DIR/config.json')).get('port', 4040))" 2>/dev/null || echo "4040")
+  HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:\${PORT}/health" 2>/dev/null)
+  if [ "$HEALTH" = "200" ]; then
+    CONTEXT="\${CONTEXT}Instar server is running on port \${PORT}. Query your capabilities: curl http://localhost:\${PORT}/capabilities\\n"
+    CONTEXT="\${CONTEXT}IMPORTANT: Before claiming you lack a capability, check /capabilities first.\\n"
+  fi
+fi
+
 [ -n "$CONTEXT" ] && echo "$CONTEXT"
 `, { mode: 0o755 });
 

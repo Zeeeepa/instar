@@ -171,6 +171,16 @@ This routes feedback to the Instar maintainers automatically. Valid types: \`bug
 
 **Scripts** — Reusable capabilities in \`.claude/scripts/\`.
 
+### Self-Discovery (Know Before You Claim)
+
+Before EVER saying "I don't have", "I can't", or "this isn't available" — check what actually exists:
+
+\`\`\`bash
+curl http://localhost:${port}/capabilities
+\`\`\`
+
+This returns your full capability matrix: scripts, hooks, Telegram status, jobs, relationships, and more. It is the source of truth about what you can do. **Never hallucinate about missing capabilities — verify first.**
+
 ### Building New Capabilities
 
 When asked for something I can't do yet, I build it:

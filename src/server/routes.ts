@@ -8,6 +8,8 @@
 import { Router } from 'express';
 import { execFileSync } from 'node:child_process';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { SessionManager } from '../core/SessionManager.js';
 import type { StateManager } from '../core/StateManager.js';
 import type { JobScheduler } from '../scheduler/JobScheduler.js';
@@ -91,6 +93,107 @@ export function createRoutes(ctx: RouteContext): Router {
         list: sessions.map(s => ({ id: s.id, name: s.name, jobSlug: s.jobSlug })),
       },
       scheduler: schedulerStatus,
+    });
+  });
+
+  // ── Capabilities (Self-Discovery) ──────────────────────────────
+  //
+  // Returns a structured self-portrait of what this agent has available.
+  // Agents should query this at session start rather than guessing
+  // about what infrastructure exists.
+
+  router.get('/capabilities', (_req, res) => {
+    const projectDir = ctx.config.projectDir;
+    const stateDir = ctx.config.stateDir;
+
+    // Identity files
+    const identityFiles: Record<string, boolean> = {
+      'AGENT.md': fs.existsSync(path.join(stateDir, 'AGENT.md')),
+      'USER.md': fs.existsSync(path.join(stateDir, 'USER.md')),
+      'MEMORY.md': fs.existsSync(path.join(stateDir, 'MEMORY.md')),
+    };
+
+    // Scripts
+    const scriptsDir = path.join(projectDir, '.claude', 'scripts');
+    let scripts: string[] = [];
+    if (fs.existsSync(scriptsDir)) {
+      try {
+        scripts = fs.readdirSync(scriptsDir).filter(f => !f.startsWith('.'));
+      } catch { /* permission error, etc. */ }
+    }
+
+    // Hooks
+    const hooksDir = path.join(stateDir, 'hooks');
+    let hooks: string[] = [];
+    if (fs.existsSync(hooksDir)) {
+      try {
+        hooks = fs.readdirSync(hooksDir).filter(f => !f.startsWith('.'));
+      } catch { /* permission error, etc. */ }
+    }
+
+    // Telegram
+    const hasTelegramConfig = ctx.config.messaging.some(m => m.type === 'telegram' && m.enabled);
+    const hasTelegramReplyScript = scripts.includes('telegram-reply.sh');
+    const telegram = {
+      configured: hasTelegramConfig,
+      replyScript: hasTelegramReplyScript,
+      adapter: !!ctx.telegram,
+      bidirectional: hasTelegramConfig && hasTelegramReplyScript && !!ctx.telegram,
+    };
+
+    // Jobs
+    let jobCount = 0;
+    let jobSlugs: string[] = [];
+    if (ctx.scheduler) {
+      const jobs = ctx.scheduler.getJobs();
+      jobCount = jobs.length;
+      jobSlugs = jobs.map(j => j.slug);
+    }
+
+    // Relationships
+    const relationshipsDir = ctx.config.relationships?.relationshipsDir;
+    let relationshipCount = 0;
+    if (relationshipsDir && fs.existsSync(relationshipsDir)) {
+      try {
+        relationshipCount = fs.readdirSync(relationshipsDir)
+          .filter(f => f.endsWith('.json')).length;
+      } catch { /* ignore */ }
+    }
+
+    // Users
+    let userCount = 0;
+    const usersFile = path.join(stateDir, 'users.json');
+    if (fs.existsSync(usersFile)) {
+      try {
+        const users = JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
+        if (Array.isArray(users)) userCount = users.length;
+      } catch { /* ignore */ }
+    }
+
+    res.json({
+      project: ctx.config.projectName,
+      version: ctx.config.version || '0.0.0',
+      port: ctx.config.port,
+      identity: identityFiles,
+      scripts,
+      hooks,
+      telegram,
+      scheduler: {
+        enabled: ctx.config.scheduler.enabled,
+        jobCount,
+        jobSlugs,
+      },
+      relationships: {
+        enabled: !!ctx.config.relationships,
+        count: relationshipCount,
+      },
+      feedback: {
+        enabled: !!ctx.config.feedback?.enabled,
+      },
+      users: {
+        count: userCount,
+      },
+      monitoring: ctx.config.monitoring,
     });
   });
 

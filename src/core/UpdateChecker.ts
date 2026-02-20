@@ -15,7 +15,8 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { UpdateInfo, UpdateResult } from './types.js';
-import { refreshHooksAndSettings } from '../commands/init.js';
+import { PostUpdateMigrator } from './PostUpdateMigrator.js';
+import type { MigratorConfig } from './PostUpdateMigrator.js';
 
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/SageMindAI/instar/releases';
 
@@ -26,15 +27,41 @@ export interface RollbackResult {
   message: string;
 }
 
+export interface UpdateCheckerConfig {
+  stateDir: string;
+  /** Required for post-update migrations */
+  projectDir?: string;
+  /** Server port for capability URLs in migrated files */
+  port?: number;
+  /** Whether Telegram is configured */
+  hasTelegram?: boolean;
+  /** Project name for migrated files */
+  projectName?: string;
+}
+
 export class UpdateChecker {
   private stateDir: string;
   private stateFile: string;
   private rollbackFile: string;
+  private migratorConfig: MigratorConfig | null;
 
-  constructor(stateDir: string) {
-    this.stateDir = stateDir;
-    this.stateFile = path.join(stateDir, 'state', 'update-check.json');
-    this.rollbackFile = path.join(stateDir, 'state', 'update-rollback.json');
+  constructor(config: string | UpdateCheckerConfig) {
+    // Backwards-compatible: accept plain string (stateDir) or config object
+    if (typeof config === 'string') {
+      this.stateDir = config;
+      this.migratorConfig = null;
+    } else {
+      this.stateDir = config.stateDir;
+      this.migratorConfig = config.projectDir ? {
+        projectDir: config.projectDir,
+        stateDir: config.stateDir,
+        port: config.port ?? 4040,
+        hasTelegram: config.hasTelegram ?? false,
+        projectName: config.projectName ?? 'agent',
+      } : null;
+    }
+    this.stateFile = path.join(this.stateDir, 'state', 'update-check.json');
+    this.rollbackFile = path.join(this.stateDir, 'state', 'update-rollback.json');
   }
 
   /**
@@ -131,13 +158,22 @@ export class UpdateChecker {
     // Save rollback info on successful update
     if (success) {
       this.saveRollbackInfo(previousVersion, newVersion);
+    }
 
-      // Refresh hooks and settings — new versions may include new hooks
+    // Post-update migration: upgrade hooks, CLAUDE.md, scripts
+    let migrationSummary = '';
+    if (success && this.migratorConfig) {
       try {
-        const projectDir = path.resolve(this.stateDir, '..');
-        refreshHooksAndSettings(projectDir, this.stateDir);
-      } catch {
-        // Non-critical — hooks can be refreshed manually via `instar init`
+        const migrator = new PostUpdateMigrator(this.migratorConfig);
+        const migration = migrator.migrate();
+        if (migration.upgraded.length > 0) {
+          migrationSummary = ` Intelligence download: ${migration.upgraded.length} files upgraded (${migration.upgraded.join(', ')}).`;
+        }
+        if (migration.errors.length > 0) {
+          migrationSummary += ` Migration warnings: ${migration.errors.join('; ')}.`;
+        }
+      } catch (err) {
+        migrationSummary = ` Post-update migration failed: ${err instanceof Error ? err.message : String(err)}.`;
       }
     }
 
@@ -146,7 +182,7 @@ export class UpdateChecker {
       previousVersion,
       newVersion,
       message: success
-        ? `Updated from v${previousVersion} to v${newVersion}. Hooks refreshed. ${info.changeSummary || 'Restart to use the new version.'}`
+        ? `Updated from v${previousVersion} to v${newVersion}.${migrationSummary} ${info.changeSummary || 'Restart to use the new version.'}`
         : `Update command ran but version didn't change (still v${previousVersion}). May need manual intervention.`,
       restartNeeded: success,
       healthCheck: 'skipped', // Can't check health until after restart
