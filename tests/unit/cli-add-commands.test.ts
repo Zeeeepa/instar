@@ -283,6 +283,24 @@ describe('CLI add commands', () => {
     });
   });
 
+  describe('corrupted config handling', () => {
+    it('add commands source has try-catch around JSON.parse', () => {
+      const cliSource = fs.readFileSync(
+        path.join(process.cwd(), 'src/cli.ts'),
+        'utf-8'
+      );
+
+      // Count how many times addTelegram/addSentry/addEmail/addQuota read config
+      // Each should have a try-catch around JSON.parse
+      const jsonParseCount = (cliSource.match(/JSON\.parse\(fs\.readFileSync\(configPath/g) || []).length;
+      const tryCatchCount = (cliSource.match(/Failed to parse \.instar\/config\.json/g) || []).length;
+
+      // Every JSON.parse of configPath should have a corresponding error message
+      expect(tryCatchCount).toBe(jsonParseCount);
+      expect(tryCatchCount).toBeGreaterThanOrEqual(4); // telegram, sentry, email, quota
+    });
+  });
+
   describe('addSentry logic', () => {
     it('adds sentry config to monitoring section', () => {
       const configPath = writeConfig();

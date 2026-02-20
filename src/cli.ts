@@ -54,7 +54,14 @@ async function addTelegram(opts: { token?: string; chatId?: string }): Promise<v
   }
 
   // Read, update, write config
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let config: any;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    console.log(pc.red('Failed to parse .instar/config.json. Check that it contains valid JSON.'));
+    process.exit(1);
+  }
 
   if (!config.messaging) config.messaging = [];
 
@@ -107,7 +114,14 @@ async function addSentry(opts: { dsn?: string }): Promise<void> {
     process.exit(1);
   }
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let config: any;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    console.log(pc.red('Failed to parse .instar/config.json. Check that it contains valid JSON.'));
+    process.exit(1);
+  }
 
   if (!config.monitoring) {
     config.monitoring = {};
@@ -157,7 +171,14 @@ async function addEmail(opts: { credentialsFile?: string; tokenFile?: string }):
   }
 
   // Read, update, write config
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let config: any;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    console.log(pc.red('Failed to parse .instar/config.json. Check that it contains valid JSON.'));
+    process.exit(1);
+  }
 
   if (!config.messaging) config.messaging = [];
 
@@ -199,7 +220,14 @@ async function addQuota(opts: { stateFile?: string }): Promise<void> {
     process.exit(1);
   }
 
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let config: any;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    console.log(pc.red('Failed to parse .instar/config.json. Check that it contains valid JSON.'));
+    process.exit(1);
+  }
 
   if (!config.monitoring) {
     config.monitoring = {};
