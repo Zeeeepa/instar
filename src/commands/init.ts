@@ -664,13 +664,102 @@ If everything looks healthy, exit silently. Only report issues.`,
 }
 
 /**
- * Refresh hooks and Claude settings for an existing installation.
- * Called after updates to ensure new hooks are installed.
- * Re-writes all hook files (idempotent) and merges new hooks into settings.
+ * Refresh hooks, Claude settings, and CLAUDE.md for an existing installation.
+ * Called after updates to ensure new hooks and documentation are installed.
+ * Re-writes all hook files (idempotent), merges new hooks into settings,
+ * and appends any missing sections to CLAUDE.md.
  */
 export function refreshHooksAndSettings(projectDir: string, stateDir: string): void {
   installHooks(stateDir);
   installClaudeSettings(projectDir);
+  refreshClaudeMd(projectDir, stateDir);
+  refreshJobs(stateDir);
+}
+
+/**
+ * Merge new default jobs into existing jobs.json without overwriting user changes.
+ * Only adds jobs whose slugs don't already exist.
+ */
+function refreshJobs(stateDir: string): void {
+  const jobsPath = path.join(stateDir, 'jobs.json');
+  if (!fs.existsSync(jobsPath)) return;
+
+  let port = 4321;
+  try {
+    const config = JSON.parse(fs.readFileSync(path.join(stateDir, 'config.json'), 'utf-8'));
+    port = config.port || 4321;
+  } catch { /* use default */ }
+
+  try {
+    const existingJobs = JSON.parse(fs.readFileSync(jobsPath, 'utf-8')) as Array<{ slug: string }>;
+    const existingSlugs = new Set(existingJobs.map(j => j.slug));
+    const defaultJobs = getDefaultJobs(port) as Array<{ slug: string }>;
+
+    let added = 0;
+    for (const job of defaultJobs) {
+      if (!existingSlugs.has(job.slug)) {
+        existingJobs.push(job);
+        added++;
+      }
+    }
+
+    if (added > 0) {
+      fs.writeFileSync(jobsPath, JSON.stringify(existingJobs, null, 2));
+    }
+  } catch { /* don't break on errors */ }
+}
+
+/**
+ * Append missing sections to CLAUDE.md without overwriting user customizations.
+ * Reads config.json for port, checks for known section headers, appends if missing.
+ */
+function refreshClaudeMd(projectDir: string, stateDir: string): void {
+  const claudeMdPath = path.join(projectDir, 'CLAUDE.md');
+  if (!fs.existsSync(claudeMdPath)) return;
+
+  // Read port from config
+  let port = 4321;
+  try {
+    const config = JSON.parse(fs.readFileSync(path.join(stateDir, 'config.json'), 'utf-8'));
+    port = config.port || 4321;
+  } catch { /* use default port */ }
+
+  const content = fs.readFileSync(claudeMdPath, 'utf-8');
+  const additions: string[] = [];
+
+  // Check for Self-Diagnosis section
+  if (!content.includes('Self-Diagnosis')) {
+    additions.push(`
+### Self-Diagnosis — Be Your Own QA
+
+**This is critical.** You are running on infrastructure (instar) that is actively evolving. When something breaks, feels wrong, or could be better — **you are the first line of detection.** Do not silently absorb errors. Do not work around bugs without reporting them. Every issue you surface helps every agent on the platform.
+
+**What to watch for:**
+- Server errors: API calls to localhost:${port} failing, unexpected responses, timeouts
+- Hook failures: hooks throwing errors, not firing when expected, blocking when they shouldn't
+- Job issues: jobs not running on schedule, failing silently, taking too long
+- Session problems: sessions not spawning, not being tracked, zombie sessions
+- State corruption: JSON parse errors in .instar/state/ files, missing fields, stale data
+- Config confusion: settings not being applied, defaults not making sense
+- Missing capabilities: something you need to do but can't because instar doesn't support it
+- Design flaws: patterns that feel wrong, workflows that are unnecessarily complex
+
+**When you detect an issue, report it immediately:**
+\`\`\`bash
+curl -s -X POST http://localhost:${port}/feedback \\
+  -H 'Content-Type: application/json' \\
+  -d '{"type":"bug","title":"CONCISE_TITLE","description":"FULL_CONTEXT_WITH_ERROR_MESSAGES"}'
+\`\`\`
+
+Types: \`bug\`, \`feature\`, \`improvement\`, \`question\`
+
+**Do not wait for the user to notice.** If a hook throws an error, report it. If a job fails, report it. If the server returns unexpected data, report it. You are not just using instar — you are part of its immune system.
+`);
+  }
+
+  if (additions.length > 0) {
+    fs.appendFileSync(claudeMdPath, '\n' + additions.join('\n'));
+  }
 }
 
 function installHooks(stateDir: string): void {
