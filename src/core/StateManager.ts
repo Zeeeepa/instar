@@ -41,7 +41,7 @@ export class StateManager {
   saveSession(session: Session): void {
     this.validateKey(session.id, 'sessionId');
     const filePath = path.join(this.stateDir, 'state', 'sessions', `${session.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+    this.atomicWrite(filePath, JSON.stringify(session, null, 2));
   }
 
   listSessions(filter?: { status?: Session['status'] }): Session[] {
@@ -81,7 +81,7 @@ export class StateManager {
   saveJobState(state: JobState): void {
     this.validateKey(state.slug, 'job slug');
     const filePath = path.join(this.stateDir, 'state', 'jobs', `${state.slug}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
+    this.atomicWrite(filePath, JSON.stringify(state, null, 2));
   }
 
   // ── Activity Events ───────────────────────────────────────────
@@ -154,6 +154,18 @@ export class StateManager {
     const filePath = path.join(this.stateDir, 'state', `${key}.json`);
     const dir = path.dirname(filePath);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+    this.atomicWrite(filePath, JSON.stringify(value, null, 2));
+  }
+
+  /**
+   * Write a file atomically — write to .tmp then rename.
+   * Prevents corruption from power loss or disk-full mid-write.
+   */
+  private atomicWrite(filePath: string, data: string): void {
+    const dir = path.dirname(filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmpPath = filePath + '.tmp';
+    fs.writeFileSync(tmpPath, data);
+    fs.renameSync(tmpPath, filePath);
   }
 }

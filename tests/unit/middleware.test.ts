@@ -54,6 +54,29 @@ describe('authMiddleware', () => {
         .set('Authorization', 'Basic dGVzdDp0ZXN0');
       expect(res.status).toBe(401);
     });
+
+    it('blocks token with different length (timing-safe)', async () => {
+      const res = await request(app)
+        .get('/status')
+        .set('Authorization', 'Bearer short');
+      expect(res.status).toBe(403);
+    });
+
+    it('blocks empty Bearer value', async () => {
+      const res = await request(app)
+        .get('/status')
+        .set('Authorization', 'Bearer ');
+      // Supertest trims the header value, so 'Bearer ' becomes 'Bearer'
+      // which fails the startsWith('Bearer ') check → 401
+      expect(res.status).toBe(401);
+    });
+
+    it('blocks token that is a prefix of the real token', async () => {
+      const res = await request(app)
+        .get('/status')
+        .set('Authorization', 'Bearer test-secret');
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('when auth token is not configured', () => {

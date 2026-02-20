@@ -95,8 +95,8 @@ export class TelegramAdapter implements MessagingAdapter {
       parse_mode: 'Markdown',
     };
 
-    if (topicId && parseInt(topicId) > 1) {
-      params.message_thread_id = parseInt(topicId);
+    if (topicId && parseInt(topicId, 10) > 1) {
+      params.message_thread_id = parseInt(topicId, 10);
     }
 
     try {
@@ -252,7 +252,10 @@ export class TelegramAdapter implements MessagingAdapter {
         topicToSession: Object.fromEntries(this.topicToSession),
         topicToName: Object.fromEntries(this.topicToName),
       };
-      fs.writeFileSync(this.registryPath, JSON.stringify(data, null, 2));
+      // Atomic write: write to .tmp then rename
+      const tmpPath = this.registryPath + '.tmp';
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+      fs.renameSync(tmpPath, this.registryPath);
     } catch (err) {
       console.error(`[telegram] Failed to save registry: ${err}`);
     }
@@ -344,11 +347,22 @@ export class TelegramAdapter implements MessagingAdapter {
   private async apiCall(method: string, params: Record<string, unknown>): Promise<unknown> {
     const url = `https://api.telegram.org/bot${this.config.token}/${method}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
+    // Long polling uses 30s timeout in params — give extra headroom
+    const timeoutMs = method === 'getUpdates' ? 60_000 : 15_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       const text = await response.text();

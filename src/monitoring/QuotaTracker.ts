@@ -113,7 +113,10 @@ export class QuotaTracker {
   updateState(state: QuotaState): void {
     const dir = path.dirname(this.config.quotaFile);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this.config.quotaFile, JSON.stringify(state, null, 2));
+    // Atomic write: write to .tmp then rename
+    const tmpPath = this.config.quotaFile + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
+    fs.renameSync(tmpPath, this.config.quotaFile);
     this.cachedState = state;
     this.lastRead = Date.now();
   }
