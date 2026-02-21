@@ -179,17 +179,26 @@ export class SessionManager extends EventEmitter {
 
     // Verify Claude process is running inside the tmux session
     try {
-      const paneCmd = execFileSync(
+      const paneInfo = execFileSync(
         this.config.tmuxPath,
-        ['display-message', '-t', `=${tmuxSession}:`, '-p', '#{pane_current_command}'],
+        ['display-message', '-t', `=${tmuxSession}:`, '-p', '#{pane_current_command}||#{pane_start_command}'],
         { encoding: 'utf-8', timeout: 5000 }
       ).trim();
+      const [paneCmd, startCmd] = paneInfo.split('||');
       // Claude Code runs as 'claude' or 'node' process
       if (paneCmd && (paneCmd.includes('claude') || paneCmd.includes('node'))) {
         return true;
       }
-      // If pane command is bash/zsh/sh, Claude may have exited — session is dead
+      // If pane command is bash/zsh/sh, check whether the session was launched
+      // with a direct command (e.g., a bash script as claudePath). In that case
+      // bash IS the expected running process — not a leftover shell after Claude exits.
+      // tmux kills sessions launched with direct commands when the command exits,
+      // so if has-session succeeds and start_command is non-empty, it's still running.
       if (paneCmd === 'bash' || paneCmd === 'zsh' || paneCmd === 'sh') {
+        if (startCmd && startCmd !== paneCmd) {
+          // Session was launched with a specific command (not a bare shell) — still alive
+          return true;
+        }
         return false;
       }
       // For any other command, assume alive (could be a Claude subprocess)
