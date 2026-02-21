@@ -100,6 +100,35 @@ instar feedback --type bug --title "Session timeout" --description "Details..."
 - **[Behavioral Hooks](#behavioral-hooks)** -- Structural guardrails: identity injection, dangerous command guards, grounding before messaging.
 - **[Default Coherence Jobs](#default-coherence-jobs)** -- Health checks, reflection, relationship maintenance. A circadian rhythm out of the box.
 - **[Feedback Loop](#the-feedback-loop-a-rising-tide-lifts-all-ships)** -- Your agent reports issues, we fix them, every agent gets the update. A rising tide lifts all ships.
+- **[Agent Skills](#agent-skills)** -- 10 open-source skills for the [Agent Skills standard](https://agentskills.io). Use standalone or as an on-ramp to full Instar.
+
+## Agent Skills
+
+Instar ships 10 skills that follow the [Agent Skills open standard](https://agentskills.io) -- portable across Claude Code, Codex, Cursor, VS Code, and 35+ other platforms.
+
+**Standalone skills** work with zero dependencies. Copy a SKILL.md into your project and go:
+
+| Skill | What it does |
+|-------|-------------|
+| [agent-identity](skills/agent-identity/) | Set up persistent identity files so your agent knows who it is across sessions |
+| [agent-memory](skills/agent-memory/) | Teach cross-session memory patterns using MEMORY.md |
+| [command-guard](skills/command-guard/) | PreToolUse hook that blocks `rm -rf`, force push, database drops before they execute |
+| [credential-leak-detector](skills/credential-leak-detector/) | PostToolUse hook that scans output for 14 credential patterns -- blocks, redacts, or warns |
+| [smart-web-fetch](skills/smart-web-fetch/) | Fetch web content with automatic markdown conversion and intelligent extraction |
+
+**Instar-powered skills** unlock capabilities that need persistent infrastructure:
+
+| Skill | What it does |
+|-------|-------------|
+| [instar-scheduler](skills/instar-scheduler/) | Schedule recurring tasks on cron -- your agent works while you sleep |
+| [instar-session](skills/instar-session/) | Spawn parallel background sessions for deep work |
+| [instar-telegram](skills/instar-telegram/) | Two-way Telegram messaging -- your agent reaches out to you |
+| [instar-identity](skills/instar-identity/) | Identity that survives context compaction -- grounding hooks, not just files |
+| [instar-feedback](skills/instar-feedback/) | Report issues directly to the Instar maintainers from inside your agent |
+
+Each standalone skill includes a "Going Further" section showing how Instar transforms the capability from manual to autonomous. Each Instar-powered skill gracefully detects missing Instar and offers one-command setup.
+
+Browse all skills: [agent-skills.md/authors/sagemindai](https://agent-skills.md/authors/sagemindai)
 
 ## How It Works
 
