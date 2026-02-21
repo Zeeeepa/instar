@@ -205,9 +205,10 @@ async function runClassicSetup(): Promise<void> {
   // ── Step 3: Telegram (BEFORE users, so we know context) ────────
 
   console.log();
-  console.log(pc.bold('  Telegram (Recommended)'));
-  console.log(pc.dim('  Telegram is the most powerful way to interact with your agent.'));
-  console.log(pc.dim('  You get organized topic threads, message history, and mobile access.'));
+  console.log(pc.bold('  Telegram — Where Your Agent Lives'));
+  console.log(pc.dim('  Telegram is where the real experience begins.'));
+  console.log(pc.dim('  Once connected, you just talk — no commands, no terminal.'));
+  console.log(pc.dim('  Topic threads, message history, mobile access, proactive notifications.'));
   console.log();
   const telegramConfig = await promptForTelegram();
 
@@ -408,13 +409,23 @@ async function runClassicSetup(): Promise<void> {
     console.log();
     const { startServer } = await import('./server.js');
     await startServer({ foreground: false });
+    if (telegramConfig?.chatId) {
+      console.log();
+      console.log(pc.bold('  Now open Telegram and say hello to your agent.'));
+      console.log(pc.dim('  That\'s your primary channel from here on — no terminal needed.'));
+    }
   } else {
     console.log();
     console.log('  To start the server:');
     console.log(`    ${pc.cyan('instar server start')}`);
     console.log();
-    console.log('  Once running, just talk to your agent — through Telegram or terminal.');
-    console.log('  It handles the rest: scheduling, monitoring, evolving, everything.');
+    if (telegramConfig?.chatId) {
+      console.log('  Then open Telegram and say hello to your agent.');
+      console.log('  That\'s your primary channel — no terminal needed.');
+    } else {
+      console.log('  Once running, just talk to your agent through Claude Code sessions.');
+      console.log('  For a richer experience, set up Telegram later with your agent\'s help.');
+    }
   }
 
   console.log();
@@ -443,11 +454,14 @@ function isInstarGlobal(): boolean {
  */
 async function promptForTelegram(): Promise<{ token: string; chatId: string } | null> {
   const enableTelegram = await confirm({
-    message: 'Set up Telegram? (recommended — gives you mobile access, organized threads, and message history)',
+    message: 'Set up Telegram? (this is how you\'ll talk to your agent — mobile, threaded, always available)',
     default: true,
   });
 
-  if (!enableTelegram) return null;
+  if (!enableTelegram) {
+    console.log(pc.dim('  You can set it up later — just ask your agent once it\'s running.'));
+    return null;
+  }
 
   console.log();
   console.log(pc.bold('  Telegram Setup'));

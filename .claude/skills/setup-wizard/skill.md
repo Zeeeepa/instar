@@ -32,7 +32,7 @@ Start with a brief welcome, then immediately ask HOW they want to use Instar.
 
 **Welcome to Instar!**
 
-Instar gives Claude Code a persistent body — a server, jobs, memory, and messaging. Two ways to use it:
+Instar turns Claude Code into a persistent agent you just talk to — through Telegram, not the terminal. This setup gets you there. Two ways to use it:
 
 ---
 
@@ -246,21 +246,23 @@ which claude
 - **Port** (default: 4040) — "The agent runs a small HTTP server for health checks and internal communication."
 - **Max sessions** (default: 3) — "This limits how many Claude sessions can run at once. 2-3 is usually right."
 
-### 3c. Telegram Setup (Strongly Recommended — Essential for General Agents)
+### 3c. Telegram Setup — The Destination
 
-**Frame Telegram as the primary way to interact with the agent.** Explain briefly:
+**This terminal session is the on-ramp. Telegram is where the agent experience truly begins.** Frame it that way:
 
-> Telegram is where Instar really shines:
+> Right now we're in a terminal. Telegram is where your agent comes alive:
+> - **Just talk** — no commands, no terminal, just conversation
 > - **Topic threads** — organized channels for different concerns
-> - **Message history** — full record of every interaction
-> - **Mobile access** — talk to your agent from anywhere
-> - **Notifications** — your agent reaches you proactively
+> - **Mobile access** — your agent is always reachable
+> - **Proactive** — your agent reaches out when something matters
 
-For **General Agents**: Telegram is essential. Without it, a general agent has no natural interface — you'd have to open a terminal every time. **Strongly encourage** setting it up and explain that this IS the agent's communication channel.
+The goal of this setup is to get the user onto Telegram as fast as possible. Everything else (jobs, config, technical setup) supports that destination.
 
-For **Project Agents**: Telegram is strongly recommended but optional. The agent can still work through CLI sessions without it.
+For **General Agents**: Telegram is essential. Without it, there IS no natural interface. Be direct: "This is how you'll talk to your agent."
 
-If the user declines, that's their choice — but make the tradeoff clear in one sentence.
+For **Project Agents**: Telegram is strongly recommended. Frame it as: "Your agent can message you about builds, issues, and progress — you just reply."
+
+If the user declines, accept it in one sentence and move on — but they should understand they're choosing the terminal-only experience.
 
 #### Browser-Automated Setup (Default)
 
@@ -445,23 +447,23 @@ Append if not present:
 .instar/logs/
 ```
 
-## Phase 4: Summary & Next Steps
+## Phase 4: Summary & Launch
 
-Show what was created briefly, then focus on what happens next.
+Show what was created briefly, then get the user to their agent.
 
-**Next steps — frame around Telegram if configured:**
+**If Telegram was configured — this is the moment:**
 
-If Telegram was set up, emphasize that Telegram IS the interface now:
+> "That's everything. Let me start the server, and then open Telegram and say hello to your agent. That's your primary channel from here on — no terminal needed."
 
-> "Start the server with `instar server start`, then open Telegram. That's it. Your agent will message you when it has something to report. You can message it when you need something done. Everything else — jobs, monitoring, memory — happens automatically."
+Start the server, then direct them to Telegram. The setup is complete when the user is talking to their agent in Telegram, not when config files are written.
 
-If Telegram was NOT set up, mention they can add it later:
+**If Telegram was NOT configured:**
 
-> "Start the server with `instar server start`. You can interact with your agent through Claude Code sessions. For a much richer experience, run `instar add telegram` later — it gives you mobile access, organized threads, and message history."
+> "Start the server with `instar server start`. You can talk to your agent through Claude Code sessions. When you're ready for a richer experience, just ask your agent to help set up Telegram."
 
 Offer to start the server.
 
-**Important:** Do NOT present a list of CLI commands. The point of Instar is that the agent is autonomous. After starting the server, the user talks to their agent (ideally through Telegram), not to the CLI.
+**Important:** Do NOT present a list of CLI commands. The setup's job is to get the user FROM the terminal TO their agent. After starting the server, the user talks to their agent (through Telegram), not to the CLI. The terminal was just the on-ramp.
 
 ## Tone
 
