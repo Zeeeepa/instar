@@ -410,11 +410,11 @@ async function runClassicSetup(): Promise<void> {
     await startServer({ foreground: false });
   } else {
     console.log();
-    console.log('  When you\'re ready, start the server with:');
+    console.log('  To start the server:');
     console.log(`    ${pc.cyan('instar server start')}`);
     console.log();
-    console.log('  Once running, your agent can handle everything else —');
-    console.log('  just ask it to add jobs, users, or configure new integrations.');
+    console.log('  Once running, just talk to your agent — through Telegram or terminal.');
+    console.log('  It handles the rest: scheduling, monitoring, evolving, everything.');
   }
 
   console.log();

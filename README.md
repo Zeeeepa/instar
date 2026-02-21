@@ -34,53 +34,44 @@ Named after the developmental stages between molts in arthropods, where each ins
 
 The difference isn't features. It's a shift in what Claude Code *is* -- from a tool you use to an agent that works alongside you. This is the cutting edge of what's possible with AI agents today -- not a demo, not a toy, but genuine autonomous partnership between a human and an AI.
 
-## Two Ways to Use Instar
+## Getting Started
 
-### 🤖 General Agent — A personal AI on your computer
-
-Want a persistent AI assistant you talk to through Telegram? Like OpenClaw, but ToS-compliant.
+One command gets you from zero to talking with your AI partner:
 
 ```bash
 npx instar
-# Choose "General Agent" → set up Telegram → start the server
-# Now talk to your agent from your phone, anywhere
 ```
 
-Your agent runs in the background, handles scheduled tasks, messages you proactively, and grows through experience. Telegram is the primary interface — organized topic threads, full message history, mobile access.
+A guided setup handles the rest — identity, Telegram connection, server. Within minutes, you're talking to your partner from your phone, anywhere. That's the intended experience: **you talk, your partner handles everything else.**
 
-### 📁 Project Agent — Add an agent to your codebase
+### Two configurations
 
-Want an agent that monitors, builds, and maintains a specific project?
+- **General Agent** — A personal AI partner on your computer. Runs in the background, handles scheduled tasks, messages you proactively, and grows through experience.
+- **Project Agent** — A partner embedded in your codebase. Monitors, builds, maintains, and communicates through Telegram or terminal.
 
-```bash
-cd my-project
-npx instar
-# Choose "Project Agent" → configure → start the server
-```
-
-Your agent watches your codebase, runs health checks, handles ops tasks, and communicates through Telegram (recommended) or terminal sessions.
-
----
-
-The wizard walks you through everything: identity, Telegram, jobs, server. One command to go from zero to a running agent.
+Once running, the infrastructure is invisible. Your partner manages its own jobs, health checks, evolution, and self-maintenance. You just talk to it.
 
 **Requirements:** Node.js 20+ · [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) · tmux · [API key](https://console.anthropic.com/) or Claude subscription
 
-## CLI Reference
+## CLI Reference (Power Users)
+
+> Most users never need these — your agent manages its own infrastructure. These commands are available for power users and for the agent itself to operate.
 
 ```bash
 # Setup
-instar                          # Interactive setup wizard (General Agent or Project Agent)
+instar                          # Interactive setup wizard
 instar setup                    # Same as above
-instar setup --classic          # Inquirer-based fallback wizard
 instar init my-agent            # Create a new agent (general or project)
-instar init                     # Add agent infrastructure to current project
 
 # Server
 instar server start             # Start the persistent server (background, tmux)
-instar server start --foreground  # Start in foreground (for development)
 instar server stop              # Stop the server
 instar status                   # Show agent infrastructure status
+
+# Lifeline (persistent Telegram connection with auto-recovery)
+instar lifeline start           # Start lifeline (supervises server, queues messages during downtime)
+instar lifeline stop            # Stop lifeline and server
+instar lifeline status          # Check lifeline health
 
 # Add capabilities
 instar add telegram --token BOT_TOKEN --chat-id CHAT_ID
@@ -90,10 +81,8 @@ instar add sentry --dsn https://key@o0.ingest.sentry.io/0
 
 # Users and jobs
 instar user add --id alice --name "Alice" [--telegram 123] [--email a@b.com]
-instar user list
 instar job add --slug check-email --name "Email Check" --schedule "0 */2 * * *" \
   [--description "..."] [--priority high] [--model sonnet]
-instar job list
 
 # Feedback
 instar feedback --type bug --title "Session timeout" --description "Details..."
@@ -116,12 +105,14 @@ instar feedback --type bug --title "Session timeout" --description "Details..."
 ```
 You (Telegram / Terminal)
          │
+    conversation
+         │
          ▼
 ┌─────────────────────────┐
-│     Instar Server       │
-│   (Express + tmux)      │
-│   http://localhost:4040  │
+│    Your AI Partner       │
+│    (Instar Server)       │
 └────────┬────────────────┘
+         │  manages its own infrastructure
          │
          ├─ Claude Code session (job: health-check)
          ├─ Claude Code session (job: email-monitor)
@@ -129,7 +120,7 @@ You (Telegram / Terminal)
          └─ Claude Code session (job: reflection)
 ```
 
-Each session is a **real Claude Code process** with extended thinking, native tools, sub-agents, hooks, skills, and MCP servers. Not an API wrapper -- the full development environment.
+Each session is a **real Claude Code process** with extended thinking, native tools, sub-agents, hooks, skills, and MCP servers. Not an API wrapper -- the full development environment. The agent manages all of this autonomously.
 
 ## Why Instar (vs OpenClaw)
 
@@ -241,14 +232,9 @@ Two-way messaging via Telegram forum topics. Each topic maps to a Claude session
 
 ### Persistent Server
 
-```bash
-instar server start              # Background (tmux)
-instar server start --foreground # Foreground (dev)
-instar server stop
-instar status                    # Health check
-```
+The server runs 24/7 in the background, surviving terminal disconnects and auto-recovering from failures. The agent operates it — you don't need to manage it.
 
-**Endpoints:**
+**API endpoints** (used by the agent internally):
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -346,7 +332,7 @@ Instar is open source. PRs and issues still work. But the *primary* feedback cha
 
 **How it works:**
 
-1. **You talk to your agent** -- "The email job keeps failing" -- natural conversation, not a bug report form
+1. **You mention a problem** -- "The email job keeps failing" -- natural conversation, not a bug report form
 2. **Agent-to-agent relay** -- Your agent communicates the issue directly to Dawn, the AI that maintains Instar
 3. **Dawn evolves Instar** -- Fixes the infrastructure and publishes an update
 4. **Every agent evolves** -- Agents detect improvements, understand them, and grow -- collectively

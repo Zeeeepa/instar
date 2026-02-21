@@ -504,12 +504,12 @@ This routes feedback to the Instar maintainers automatically. Valid types: \`bug
 
 **Feedback System** — Report bugs, request features, suggest improvements. All via \`POST /feedback\`. NOT GitHub.
 
-**Job Scheduler** — You can run tasks on a schedule. Jobs are defined in \`.instar/jobs.json\`.
+**Job Scheduler** — Run tasks on a schedule. Jobs are defined in \`.instar/jobs.json\`.
 - View jobs: \`curl http://localhost:${port}/jobs\`
 - Trigger a job: \`curl -X POST http://localhost:${port}/jobs/SLUG/trigger\`
 - **Create new jobs**: Edit \`.instar/jobs.json\`. Each job has a slug, schedule (cron), priority, and either a prompt (Claude session), script (shell command), or skill.
 
-**Sessions** — You can spawn and manage Claude Code sessions.
+**Sessions** — Spawn and manage Claude Code sessions.
 - List: \`curl http://localhost:${port}/sessions\`
 - Spawn: \`curl -X POST http://localhost:${port}/sessions/spawn -H 'Content-Type: application/json' -d '{"name":"task","prompt":"do something"}'\`
 
