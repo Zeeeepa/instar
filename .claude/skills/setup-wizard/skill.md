@@ -585,23 +585,57 @@ Append if not present:
 .instar/logs/
 ```
 
-## Phase 5: Summary & Launch
+## Phase 5: Launch & Handoff
 
-Show what was created briefly, then get the user to their agent.
+**Do NOT ask "want me to start the server?" — just start it.** There is no reason not to. The whole point of setup is to get the agent running.
 
-**If Telegram was configured — this is the moment:**
+### Step 5a: Start the Server
 
-> "That's everything. Let me start the server, and then open Telegram and say hello to your agent. That's your primary channel from here on — no terminal needed."
+Run the server in the background:
+```bash
+cd <project_dir> && npx instar server start &
+```
 
-Start the server, then direct them to Telegram. The setup is complete when the user is talking to their agent in Telegram, not when config files are written.
+Wait a few seconds, then verify it's running:
+```bash
+curl -s http://localhost:<port>/health
+```
+
+If the health check fails, retry once. If still failing, tell the user what happened and suggest `instar server start` manually.
+
+### Step 5b: Agent Greets the User via Telegram
+
+**If Telegram was configured, the new agent should reach out to the user.** This is the magic moment — the agent comes alive.
+
+Send a greeting message from the bot to the Telegram group using the Bot API:
+
+```bash
+curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+  -H 'Content-Type: application/json' \
+  -d '{"chat_id": "<CHAT_ID>", "text": "<GREETING>"}'
+```
+
+The greeting should be **in the agent's voice** — using the name, personality, and tone defined in Step 2. For example, if the agent is named "Scout" and is casual:
+
+> "Hey! I'm Scout, your new project agent. I'm up and running — talk to me here anytime. I'll be watching over the codebase and reaching out when something matters. What should we tackle first?"
+
+Keep it short (2-3 sentences), in character, and inviting.
+
+### Step 5c: Tell the User
+
+After the server is running and the greeting is sent:
+
+> "All done! [Agent name] just messaged you in Telegram. From here on, that's your primary channel — just talk to your agent there."
+>
+> "As long as your computer is running the Instar server, your agent is available."
+
+**Do NOT present a list of CLI commands or next steps.** The setup wizard's job is done. The user's next action is opening Telegram and replying to their agent.
 
 **If Telegram was NOT configured:**
 
-> "Start the server with `instar server start`. You can talk to your agent through Claude Code sessions. When you're ready for a richer experience, just ask your agent to help set up Telegram."
+Start the server, then:
 
-Offer to start the server.
-
-**Important:** Do NOT present a list of CLI commands. The setup's job is to get the user FROM the terminal TO their agent. After starting the server, the user talks to their agent (through Telegram), not to the CLI. The terminal was just the on-ramp.
+> "Server is running. You can talk to your agent through Claude Code sessions. When you're ready for a richer experience, just ask your agent to help set up Telegram."
 
 ## Phase 6: Post-Setup Feedback (Optional)
 

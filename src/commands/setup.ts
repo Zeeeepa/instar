@@ -496,33 +496,34 @@ async function runClassicSetup(): Promise<void> {
     console.log();
   }
 
-  // Offer to start server
-  const startNow = await confirm({
-    message: 'Start the agent server now?',
-    default: true,
-  });
+  // Auto-start server — no reason to ask
+  console.log();
+  console.log(pc.dim('  Starting server...'));
+  const { startServer } = await import('./server.js');
+  await startServer({ foreground: false });
 
-  if (startNow) {
-    console.log();
-    const { startServer } = await import('./server.js');
-    await startServer({ foreground: false });
-    if (telegramConfig?.chatId) {
-      console.log();
-      console.log(pc.bold('  Now open Telegram and say hello to your agent.'));
-      console.log(pc.dim('  That\'s your primary channel from here on — no terminal needed.'));
+  if (telegramConfig?.chatId) {
+    // Send a greeting from the new agent via Telegram
+    try {
+      const greeting = `Hey! I'm ${projectName}, your new agent. I'm up and running — talk to me here anytime. What should we work on first?`;
+      execFileSync('curl', [
+        '-s', '-X', 'POST',
+        `https://api.telegram.org/bot${telegramConfig.token}/sendMessage`,
+        '-H', 'Content-Type: application/json',
+        '-d', JSON.stringify({ chat_id: telegramConfig.chatId, text: greeting }),
+      ], { stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 });
+    } catch {
+      // Non-fatal — the agent will greet on first session
     }
+    console.log();
+    console.log(pc.bold(`  All done! ${projectName} just messaged you in Telegram.`));
+    console.log(pc.dim('  That\'s your primary channel from here on — no terminal needed.'));
+    console.log(pc.dim('  As long as your computer is running the Instar server, your agent is available.'));
   } else {
     console.log();
-    console.log('  To start the server:');
-    console.log(`    ${pc.cyan('instar server start')}`);
-    console.log();
-    if (telegramConfig?.chatId) {
-      console.log('  Then open Telegram and say hello to your agent.');
-      console.log('  That\'s your primary channel — no terminal needed.');
-    } else {
-      console.log('  Once running, just talk to your agent through Claude Code sessions.');
-      console.log('  For a richer experience, set up Telegram later with your agent\'s help.');
-    }
+    console.log(pc.bold('  Server is running.'));
+    console.log(pc.dim('  Talk to your agent through Claude Code sessions.'));
+    console.log(pc.dim('  For a richer experience, ask your agent to help set up Telegram.'));
   }
 
   // ── Post-setup feedback ──────────────────────────────────────────
