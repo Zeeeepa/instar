@@ -582,6 +582,49 @@ Offer to start the server.
 
 **Important:** Do NOT present a list of CLI commands. The setup's job is to get the user FROM the terminal TO their agent. After starting the server, the user talks to their agent (through Telegram), not to the CLI. The terminal was just the on-ramp.
 
+## Phase 6: Post-Setup Feedback (Optional)
+
+After the server is running (or setup is complete), ask the user if they'd like to share feedback on the setup experience. Keep it light — one question, not a survey.
+
+> "One last thing — how was this setup experience? Any rough spots or things you wish were different?"
+>
+> "Your feedback helps improve Instar for everyone. Totally optional."
+
+Present options:
+1. **Share feedback** — "I have thoughts"
+2. **Skip** — "No, I'm good"
+
+If they choose to share:
+- Let them type freely — don't constrain the format
+- Ask a follow-up if useful: "Anything else? Any features you expected that weren't here?"
+
+Then save the feedback. Write it to `.instar/state/setup-feedback.json`:
+
+```json
+{
+  "timestamp": "2026-02-22T01:00:00.000Z",
+  "instarVersion": "0.7.x",
+  "setupMode": "project" | "personal",
+  "telegramConfigured": true | false,
+  "browserAutomationUsed": "playwright" | "manual" | "none",
+  "feedback": "User's free-form text here",
+  "os": "darwin" | "linux" | "win32",
+  "nodeVersion": "v20.x.x"
+}
+```
+
+Also forward it via the feedback webhook if the server is running:
+
+```bash
+curl -s -X POST "http://localhost:${PORT}/feedback" \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"improvement","title":"[Setup Feedback] User experience report","description":"...their feedback...","context":"setupMode=project, telegram=true, browser=playwright"}'
+```
+
+If the server isn't running yet, the local file is enough — the agent can forward it later when the server starts.
+
+**This feedback is gold.** Common patterns in setup feedback directly inform what to improve next. Every user who takes 30 seconds to share their experience makes the next user's setup better.
+
 ## Tone
 
 - Warm and conversational — first meeting between user and their agent
