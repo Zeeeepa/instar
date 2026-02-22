@@ -95,6 +95,22 @@ export async function runSetup(opts?: { classic?: boolean }): Promise<void> {
     gitContext = ' This directory is NOT inside a git repository.';
   }
 
+  // Pre-install Playwright browser binaries so the wizard has browser automation
+  // available from the start. This runs BEFORE launching Claude Code, eliminating
+  // the "need to restart to load MCP" problem. Silent on success, warns on failure.
+  const instarRoot = findInstarRoot();
+  console.log(pc.dim('  Preparing browser automation for Telegram setup...'));
+  try {
+    execFileSync('npx', ['playwright', 'install', 'chromium'], {
+      cwd: instarRoot,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 120000, // 2 minutes — first install downloads ~150MB
+    });
+  } catch {
+    // Non-fatal — wizard will fall back to manual if browser isn't available
+    console.log(pc.dim('  (Browser automation may not be available — the wizard can still guide you manually)'));
+  }
+
   // Launch Claude Code from the instar package root (where .claude/skills/ lives)
   // and pass the target project directory + git context in the prompt.
   //
@@ -103,7 +119,6 @@ export async function runSetup(opts?: { classic?: boolean }): Promise<void> {
   // project. Without it, Claude would prompt for permissions to modify the
   // user's project directory, which breaks the interactive flow. The wizard
   // only writes to well-defined locations (.instar/, .claude/, CLAUDE.md).
-  const instarRoot = findInstarRoot();
   const child = spawn(claudePath, [
     '--dangerously-skip-permissions',
     `/setup-wizard The project to set up is at: ${projectDir}.${gitContext}`,

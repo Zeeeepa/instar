@@ -285,33 +285,52 @@ If the user declines, accept it in one sentence and move on — but they should 
 
 ### Browser Automation Strategy
 
-**CRITICAL: Use ONLY Playwright (mcp__playwright__*) tools for browser automation.**
+**Goal: Automate Telegram setup with a visible browser. Manual instructions are the absolute last resort.**
 
-**DO NOT use Claude in Chrome (mcp__claude-in-chrome__*) tools.** The Chrome extension has issues when Chrome is already open and runs in the user's existing browser session which causes conflicts. Playwright opens its own clean browser window — visible, reliable, and independent.
+The wizard detects what browser tools are available and picks the best path. The user should never have to figure out browser automation themselves.
 
-If you see both Playwright and Chrome extension tools available, **always choose Playwright**. Never fall back to Chrome extension.
+**CRITICAL UX RULE: Never silently attempt browser automation.** The user must know what's happening at every step. If something fails, explain what happened and try the next approach.
 
-**CRITICAL UX RULE: Never silently attempt browser automation.** The user must know what's happening at every step. If something fails, explain what happened — don't just report "it didn't work."
+#### Step 3a: Detect Browser Capabilities
 
-#### Step 3a: Verify Playwright is Available
+Run through this detection waterfall. Stop at the first one that works:
 
-Before doing anything with the browser, verify Playwright works:
+**Option A: Playwright (preferred)**
 
+Check if `mcp__playwright__*` tools are available. If yes, try:
 ```
 mcp__playwright__browser_navigate({ url: "about:blank" })
 ```
 
-If this succeeds, Playwright is available and a visible browser window should appear. Proceed to Step 3b.
+If this succeeds → a visible Chromium window should appear. You're good — proceed to **Step 3b** with Playwright.
 
-If Playwright tools are NOT available (tool not found errors), tell the user:
+If the tool exists but fails with a browser-not-installed error → try the built-in install tool:
+```
+mcp__playwright__browser_install()
+```
+Wait for it to complete, then retry `browser_navigate`. If it works now → proceed with Playwright.
 
-> "I need the Playwright browser tools to automate the Telegram setup. They don't seem to be configured."
-> "You can add them by running: `npx @playwright/mcp@latest`"
-> "Or I can walk you through the manual setup instead."
+**Option B: Claude in Chrome (fallback)**
 
-If the user chooses manual, go to **Manual Fallback** (Step 3g).
+If Playwright tools are NOT available (tool not found) or Playwright failed even after `browser_install`:
 
-**Do NOT fall back to Chrome extension tools.** If Playwright isn't available, use manual instructions.
+Check if `mcp__claude-in-chrome__*` tools are available. If yes, tell the user:
+
+> "I'll use the Chrome extension for browser automation. For the smoothest experience, please **close all Chrome windows** before I start — the extension works best with a fresh Chrome session."
+>
+> "Ready? Say OK and I'll open it."
+
+Wait for confirmation. Then use `mcp__claude-in-chrome__tabs_context_mcp` to initialize, then `mcp__claude-in-chrome__tabs_create_mcp` for a new tab, and `mcp__claude-in-chrome__navigate` to go to Telegram Web.
+
+**Option C: Manual (last resort)**
+
+If NEITHER Playwright nor Chrome extension tools are available:
+
+> "I don't have browser automation tools available right now. No problem — I'll walk you through the Telegram setup step by step. It takes about 2 minutes."
+
+Go to **Step 3g: Manual Fallback**.
+
+**IMPORTANT: Do NOT skip to manual prematurely.** Try BOTH automation options before falling back. The goal is zero manual steps whenever possible.
 
 #### Step 3b: Announce What's About to Happen
 
@@ -319,7 +338,7 @@ If the user chooses manual, go to **Manual Fallback** (Step 3g).
 
 > "I'm going to open a browser window to set up Telegram automatically. I'll create a bot, set up a group, and configure everything."
 >
-> "A Chromium browser window will appear on your screen — you'll need to log into Telegram there."
+> "You'll see a browser window appear — you'll need to log into Telegram there."
 >
 > "Ready? Say OK and I'll open it."
 
@@ -327,25 +346,29 @@ If the user chooses manual, go to **Manual Fallback** (Step 3g).
 
 #### Step 3c: Open Browser and Navigate
 
-Navigate to Telegram Web:
+**If using Playwright:**
 ```
 mcp__playwright__browser_navigate({ url: "https://web.telegram.org/a/" })
 ```
 
-The user should see a Chromium window open on their screen. If they report they don't see a browser window, Playwright may be running headless. Tell them:
-
-> "It seems the browser opened in headless mode (invisible). Let me close it and we'll do the manual setup instead."
-
-Then close the browser and go to Manual Fallback.
-
-After navigating, take a snapshot to check the page state:
+**If using Chrome extension:**
 ```
-mcp__playwright__browser_snapshot()
+mcp__claude-in-chrome__navigate({ url: "https://web.telegram.org/a/", tabId: <tab_id> })
 ```
+
+The user should see a browser window. If they report they don't see one:
+- For Playwright: may be running headless. Try closing and re-opening. If still invisible, try Chrome extension (Option B).
+- For Chrome extension: Chrome may need to be opened. Tell the user to open Chrome, then retry.
+
+If the user STILL can't see a browser after both attempts, go to Manual Fallback.
+
+After navigating, check the page state:
+- Playwright: `mcp__playwright__browser_snapshot()`
+- Chrome: `mcp__claude-in-chrome__read_page({ tabId: <tab_id> })`
 
 #### Step 3d: Handle Login
 
-Check the snapshot for login indicators (QR code screen, "Log in" text, phone number input). Two possible states:
+Check the page for login indicators (QR code screen, "Log in" text, phone number input). Two possible states:
 
 **If already logged in** (you see a chat list, search bar, contacts):
 > "You're logged in. Starting the setup now."
@@ -355,13 +378,13 @@ Proceed to Step 3e.
 **If NOT logged in** (you see QR code or login screen):
 
 Tell the user:
-> "I see the Telegram login screen in the browser window I just opened."
+> "I see the Telegram login screen in the browser window."
 >
-> "Please log in now — you can scan the QR code with your phone's Telegram app (Settings > Devices > Link Desktop Device)."
+> "Please log in now — scan the QR code with your phone's Telegram app (Settings > Devices > Link Desktop Device)."
 >
 > "Let me know when you're logged in and I'll continue."
 
-**Wait for the user to confirm they've logged in.** Then take another snapshot to verify. If still not logged in, tell them what you see and ask again. Do NOT proceed until login is confirmed by snapshot.
+**Wait for the user to confirm they've logged in.** Then take another snapshot to verify. If still not logged in, tell them what you see and ask again. Do NOT proceed until login is confirmed.
 
 #### Step 3e: Automated Telegram Setup
 
@@ -440,10 +463,9 @@ curl -s "https://api.telegram.org/bot${TOKEN}/getUpdates?timeout=5"
 After all steps succeed, tell the user:
 > "Telegram is set up! Bot token and chat ID saved."
 
-Close the browser if using Playwright:
-```
-mcp__playwright__browser_close()
-```
+Close the browser:
+- Playwright: `mcp__playwright__browser_close()`
+- Chrome extension: No need to close — the user's Chrome stays open
 
 #### Step 3g: Manual Fallback
 
@@ -463,15 +485,14 @@ curl -s "https://api.telegram.org/bot${TOKEN}/getUpdates?timeout=5"
 
 ### Browser Automation Tips
 
-- **ONLY use `mcp__playwright__*` tools.** Never use `mcp__claude-in-chrome__*` even if available.
-- **Always take a snapshot before interacting.** Telegram Web's UI changes frequently.
-- **Use `mcp__playwright__browser_snapshot`** (accessibility tree) over screenshots for finding elements — more reliable.
-- **Use `mcp__playwright__browser_click`** with ref from snapshots for clicking.
-- **Use `mcp__playwright__browser_type`** for typing into inputs. Use `submit: true` to send messages.
-- **Wait 2-3 seconds** after each action for Telegram to process. Use `mcp__playwright__browser_wait_for({ time: 2 })`.
+- **Prefer Playwright, fall back to Chrome extension.** Playwright gets a clean browser; Chrome extension reuses the user's session. Both work.
+- **Always take a snapshot/read_page before interacting.** Telegram Web's UI changes frequently.
+- **Playwright**: Use `browser_snapshot` (accessibility tree) for finding elements. Use `browser_click` with ref. Use `browser_type` with `submit: true` for messages. Use `browser_wait_for({ time: 2 })` between actions.
+- **Chrome extension**: Use `read_page` for accessibility tree. Use `computer` with `left_click` for clicking. Use `computer` with `type` for text input. Use `computer` with `wait` between actions.
 - **If an element isn't found**, take a fresh snapshot — the view may have changed.
 - **Telegram Web uses version "a"** (web.telegram.org/a/) — this is the React-based client.
 - **If something goes wrong**, tell the user exactly what happened and what you see. Offer to retry that specific step or fall back to manual for just the remaining steps.
+- **If one automation tool fails mid-flow**, you can switch to the other tool or to manual FOR JUST THE REMAINING STEPS. Don't restart from scratch.
 - **NEVER silently fail.** If a browser action doesn't work, say "I tried to click X but it didn't respond. Here's what I see on screen: [describe]. Let me try another approach."
 
 ## Phase 4: Technical Configuration
