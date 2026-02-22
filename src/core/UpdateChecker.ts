@@ -129,8 +129,9 @@ export class UpdateChecker {
     }
 
     try {
-      // Execute npm update
-      await this.execAsync('npm', ['update', '-g', 'instar'], 120000);
+      // Use `npm install -g instar@latest` — `npm update -g` is unreliable
+      // for global packages and often silently fails to change the version
+      await this.execAsync('npm', ['install', '-g', 'instar@latest'], 120000);
     } catch (err) {
       return {
         success: false,
