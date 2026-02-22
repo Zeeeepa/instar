@@ -651,21 +651,29 @@ The greeting should be **in the agent's voice** AND explain how Telegram topics 
 
 Adapt the tone and examples to the agent's personality and role. Keep it warm and practical.
 
-### Step 5c: Tell the User
+### Step 5c: Install Auto-Start
 
-After the server is running and the greeting is sent:
+After the server starts, install auto-start so the agent comes back on login:
+
+```bash
+npx instar autostart install --dir <project_dir>
+```
+
+This creates a macOS LaunchAgent or Linux systemd service. The agent will start automatically whenever the user logs in — nothing to remember.
+
+### Step 5d: Tell the User
+
+After the server is running, auto-start is installed, and the greeting is sent:
 
 > "All done! [Agent name] just messaged you in the Lifeline topic on Telegram. From here on, that's your primary channel — just talk to your agent there."
-
-Then explain the connectivity requirement clearly:
-
-> "One important thing to know: your agent runs on this computer. As long as it's on and awake, your agent is reachable via Telegram."
 >
-> "If your computer goes to sleep or shuts down, Telegram messages will queue up. Your agent will pick them up when it wakes back up."
->
-> "For always-on access, some users keep a dedicated machine running — but it's not required to get started."
+> "I've set up auto-start — your agent will come back automatically when you log in. As long as your computer is on and awake, Telegram just works."
 
-Keep it matter-of-fact, not alarming. The user should understand the tradeoff without feeling like they need a server farm to use this.
+If auto-start install failed, explain the fallback:
+
+> "Your agent runs on this computer. If your computer restarts, you'll need to run `instar server start` to bring it back."
+
+Keep it matter-of-fact, not alarming.
 
 **Do NOT present a list of CLI commands or next steps.** The setup wizard's job is done. The user's next action is opening Telegram and replying to their agent.
 

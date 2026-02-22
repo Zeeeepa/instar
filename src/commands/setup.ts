@@ -18,6 +18,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import pc from 'picocolors';
 import { input, confirm, select, number } from '@inquirer/prompts';
@@ -502,6 +503,13 @@ async function runClassicSetup(): Promise<void> {
   const { startServer } = await import('./server.js');
   await startServer({ foreground: false });
 
+  // ── Auto-start on login ──────────────────────────────────────────
+  const hasTelegram = !!telegramConfig?.chatId;
+  const autoStartInstalled = installAutoStart(projectName, projectDir, hasTelegram);
+  if (autoStartInstalled) {
+    console.log(pc.green('  ✓ Auto-start installed — your agent will start on login.'));
+  }
+
   if (telegramConfig?.chatId) {
     // Create the Lifeline topic — the always-available channel
     let lifelineThreadId: number | null = null;
@@ -571,9 +579,14 @@ async function runClassicSetup(): Promise<void> {
     console.log(pc.bold(`  All done! ${projectName} just messaged you${topicNote} on Telegram.`));
     console.log(pc.dim('  That\'s your primary channel from here on — no terminal needed.'));
     console.log();
-    console.log(pc.dim('  Your agent runs on this computer. As long as it\'s on and awake,'));
-    console.log(pc.dim('  your agent is reachable via Telegram. If your computer sleeps or'));
-    console.log(pc.dim('  shuts down, messages will queue and be picked up when it wakes.'));
+    if (autoStartInstalled) {
+      console.log(pc.dim('  Your agent starts automatically when you log in — nothing to remember.'));
+      console.log(pc.dim('  As long as your computer is on and awake, Telegram just works.'));
+    } else {
+      console.log(pc.dim('  Your agent runs on this computer. As long as it\'s on and awake,'));
+      console.log(pc.dim('  your agent is reachable via Telegram. You\'ll need to run'));
+      console.log(pc.dim(`  ${pc.cyan('instar server start')} after a reboot.`));
+    }
   } else {
     console.log();
     console.log(pc.bold('  Server is running.'));
@@ -642,6 +655,225 @@ function isInstarGlobal(): boolean {
   } catch {
     return false;
   }
+}
+
+// ── Auto-Start on Login ─────────────────────────────────────────
+
+/**
+ * Install auto-start so the agent's lifeline process starts on login.
+ * macOS: LaunchAgent plist in ~/Library/LaunchAgents/
+ * Linux: systemd user service in ~/.config/systemd/user/
+ *
+ * Returns true if auto-start was installed successfully.
+ */
+export function installAutoStart(projectName: string, projectDir: string, hasTelegram: boolean): boolean {
+  const platform = process.platform;
+
+  if (platform === 'darwin') {
+    return installMacOSLaunchAgent(projectName, projectDir, hasTelegram);
+  } else if (platform === 'linux') {
+    return installLinuxSystemdService(projectName, projectDir, hasTelegram);
+  } else {
+    // Windows or other — no auto-start support yet
+    return false;
+  }
+}
+
+/**
+ * Remove auto-start for a project.
+ */
+export function uninstallAutoStart(projectName: string): boolean {
+  const platform = process.platform;
+
+  if (platform === 'darwin') {
+    const label = `ai.instar.${projectName}`;
+    const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${label}.plist`);
+
+    // Unload if loaded
+    try {
+      execFileSync('launchctl', ['bootout', `gui/${process.getuid?.() ?? 501}`, plistPath], { stdio: 'ignore' });
+    } catch { /* not loaded */ }
+
+    // Remove file
+    try {
+      fs.unlinkSync(plistPath);
+      return true;
+    } catch {
+      return false;
+    }
+  } else if (platform === 'linux') {
+    const serviceName = `instar-${projectName}.service`;
+    const servicePath = path.join(os.homedir(), '.config', 'systemd', 'user', serviceName);
+
+    try {
+      execFileSync('systemctl', ['--user', 'disable', serviceName], { stdio: 'ignore' });
+      execFileSync('systemctl', ['--user', 'stop', serviceName], { stdio: 'ignore' });
+    } catch { /* not loaded */ }
+
+    try {
+      fs.unlinkSync(servicePath);
+      execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+function findNodePath(): string {
+  try {
+    return execFileSync('which', ['node'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    return '/usr/local/bin/node';
+  }
+}
+
+function findInstarCli(): string {
+  // Find the actual instar CLI entry point
+  try {
+    const globalPath = execFileSync('which', ['instar'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (globalPath && !globalPath.includes('.npm/_npx')) {
+      return globalPath;
+    }
+  } catch { /* not global */ }
+
+  // Fallback: use the dist/cli.js from the npm package
+  const cliPath = new URL('../cli.js', import.meta.url).pathname;
+  if (fs.existsSync(cliPath)) {
+    return cliPath;
+  }
+
+  return 'instar';
+}
+
+function installMacOSLaunchAgent(projectName: string, projectDir: string, hasTelegram: boolean): boolean {
+  const label = `ai.instar.${projectName}`;
+  const launchAgentsDir = path.join(os.homedir(), 'Library', 'LaunchAgents');
+  const plistPath = path.join(launchAgentsDir, `${label}.plist`);
+  const logDir = path.join(projectDir, '.instar', 'logs');
+  const nodePath = findNodePath();
+  const instarCli = findInstarCli();
+
+  // Determine what to start: lifeline if Telegram configured, otherwise just the server
+  const command = hasTelegram ? 'lifeline' : 'server';
+  const args = hasTelegram
+    ? [instarCli, 'lifeline', 'start', '--dir', projectDir]
+    : [instarCli, 'server', 'start', '--foreground', '--dir', projectDir];
+
+  // If instar CLI is a node script (not a binary), prepend node
+  const isNodeScript = instarCli.endsWith('.js') || instarCli.endsWith('.mjs');
+  const programArgs = isNodeScript ? [nodePath, ...args] : args;
+
+  // Build the plist XML
+  const argsXml = programArgs.map(a => `      <string>${escapeXml(a)}</string>`).join('\n');
+
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${escapeXml(label)}</string>
+    <key>ProgramArguments</key>
+    <array>
+${argsXml}
+    </array>
+    <key>WorkingDirectory</key>
+    <string>${escapeXml(projectDir)}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${escapeXml(path.join(logDir, `${command}-launchd.log`))}</string>
+    <key>StandardErrorPath</key>
+    <string>${escapeXml(path.join(logDir, `${command}-launchd.err`))}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>${escapeXml(process.env.PATH || '/usr/local/bin:/usr/bin:/bin')}</string>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>`;
+
+  try {
+    fs.mkdirSync(launchAgentsDir, { recursive: true });
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(plistPath, plist);
+
+    // Load the agent
+    try {
+      // Unload first if already loaded
+      execFileSync('launchctl', ['bootout', `gui/${process.getuid?.() ?? 501}`, plistPath], { stdio: 'ignore' });
+    } catch { /* not loaded yet — fine */ }
+
+    execFileSync('launchctl', ['bootstrap', `gui/${process.getuid?.() ?? 501}`, plistPath], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function installLinuxSystemdService(projectName: string, projectDir: string, hasTelegram: boolean): boolean {
+  const serviceName = `instar-${projectName}.service`;
+  const serviceDir = path.join(os.homedir(), '.config', 'systemd', 'user');
+  const servicePath = path.join(serviceDir, serviceName);
+  const nodePath = findNodePath();
+  const instarCli = findInstarCli();
+
+  const command = hasTelegram ? 'lifeline' : 'server';
+  const args = hasTelegram
+    ? `${instarCli} lifeline start --dir ${projectDir}`
+    : `${instarCli} server start --foreground --dir ${projectDir}`;
+
+  const isNodeScript = instarCli.endsWith('.js') || instarCli.endsWith('.mjs');
+  const execStart = isNodeScript ? `${nodePath} ${args}` : args;
+
+  const service = `[Unit]
+Description=Instar Agent - ${projectName}
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${execStart}
+WorkingDirectory=${projectDir}
+Restart=always
+RestartSec=10
+Environment=PATH=${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}
+
+[Install]
+WantedBy=default.target
+`;
+
+  try {
+    fs.mkdirSync(serviceDir, { recursive: true });
+    fs.writeFileSync(servicePath, service);
+
+    execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' });
+    execFileSync('systemctl', ['--user', 'enable', serviceName], { stdio: 'ignore' });
+    execFileSync('systemctl', ['--user', 'start', serviceName], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 // ── Prompt Helpers ───────────────────────────────────────────────

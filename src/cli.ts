@@ -600,4 +600,81 @@ program
     }
   });
 
+// ── Auto-Start ───────────────────────────────────────────────────
+
+const autostartCmd = program
+  .command('autostart')
+  .description('Manage auto-start on login (agent starts when you log into your computer)');
+
+autostartCmd
+  .command('install')
+  .description('Install auto-start so your agent starts on login')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { loadConfig } = await import('./core/Config.js');
+    const { installAutoStart } = await import('./commands/setup.js');
+    const config = loadConfig(opts.dir);
+    const hasTelegram = config.messaging?.some((m: { type: string }) => m.type === 'telegram') ?? false;
+    const installed = installAutoStart(config.projectName, config.projectDir, hasTelegram);
+    if (installed) {
+      console.log(pc.green(`Auto-start installed for "${config.projectName}".`));
+      console.log(pc.dim('Your agent will start automatically when you log in.'));
+    } else {
+      console.log(pc.red('Failed to install auto-start.'));
+      console.log(pc.dim(`Platform: ${process.platform} — auto-start supports macOS and Linux.`));
+    }
+  });
+
+autostartCmd
+  .command('uninstall')
+  .description('Remove auto-start')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { loadConfig } = await import('./core/Config.js');
+    const { uninstallAutoStart } = await import('./commands/setup.js');
+    const config = loadConfig(opts.dir);
+    const removed = uninstallAutoStart(config.projectName);
+    if (removed) {
+      console.log(pc.green(`Auto-start removed for "${config.projectName}".`));
+    } else {
+      console.log(pc.yellow('No auto-start found to remove.'));
+    }
+  });
+
+autostartCmd
+  .command('status')
+  .description('Check if auto-start is installed')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { loadConfig } = await import('./core/Config.js');
+    const config = loadConfig(opts.dir);
+    const os = await import('node:os');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    if (process.platform === 'darwin') {
+      const label = `ai.instar.${config.projectName}`;
+      const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${label}.plist`);
+      if (fs.existsSync(plistPath)) {
+        console.log(pc.green(`Auto-start is installed (macOS LaunchAgent: ${label})`));
+        console.log(pc.dim(`  Plist: ${plistPath}`));
+      } else {
+        console.log(pc.yellow('Auto-start is not installed.'));
+        console.log(pc.dim('  Install with: instar autostart install'));
+      }
+    } else if (process.platform === 'linux') {
+      const serviceName = `instar-${config.projectName}.service`;
+      const servicePath = path.join(os.homedir(), '.config', 'systemd', 'user', serviceName);
+      if (fs.existsSync(servicePath)) {
+        console.log(pc.green(`Auto-start is installed (systemd user service: ${serviceName})`));
+        console.log(pc.dim(`  Service: ${servicePath}`));
+      } else {
+        console.log(pc.yellow('Auto-start is not installed.'));
+        console.log(pc.dim('  Install with: instar autostart install'));
+      }
+    } else {
+      console.log(pc.yellow(`Auto-start is not supported on ${process.platform}.`));
+    }
+  });
+
 program.parse();
