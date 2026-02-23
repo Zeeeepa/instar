@@ -32,6 +32,8 @@ export class ServerSupervisor extends EventEmitter {
   private lastHealthy = 0;
   private startupGraceMs = 20_000; // 20 seconds grace period after spawn before health checks
   private spawnedAt = 0;
+  private retryCooldownMs = 5 * 60_000; // 5 minutes cooldown after max retries exhausted
+  private maxRetriesExhaustedAt = 0;
 
   constructor(options: {
     projectDir: string;
@@ -111,13 +113,21 @@ export class ServerSupervisor extends EventEmitter {
     restartAttempts: number;
     lastHealthy: number;
     serverSession: string;
+    coolingDown: boolean;
+    cooldownRemainingMs: number;
   } {
+    const coolingDown = this.maxRetriesExhaustedAt > 0;
+    const cooldownRemainingMs = coolingDown
+      ? Math.max(0, this.retryCooldownMs - (Date.now() - this.maxRetriesExhaustedAt))
+      : 0;
     return {
       running: this.isRunning,
       healthy: this.healthy,
       restartAttempts: this.restartAttempts,
       lastHealthy: this.lastHealthy,
       serverSession: this.serverSessionName,
+      coolingDown,
+      cooldownRemainingMs,
     };
   }
 
@@ -220,27 +230,42 @@ export class ServerSupervisor extends EventEmitter {
       this.emit('serverDown', 'Health check failed');
     }
 
-    // Auto-restart with backoff
-    if (this.restartAttempts < this.maxRestartAttempts) {
-      this.restartAttempts++;
-      const delay = this.restartBackoffMs * Math.pow(2, this.restartAttempts - 1);
-      console.log(`[Supervisor] Server unhealthy. Restart attempt ${this.restartAttempts}/${this.maxRestartAttempts} in ${delay}ms`);
-      this.emit('serverRestarting', this.restartAttempts);
+    // After max retries exhausted, wait for cooldown before trying again.
+    // This prevents permanent death from transient issues (port conflicts, etc.)
+    if (this.restartAttempts >= this.maxRestartAttempts) {
+      if (this.maxRetriesExhaustedAt === 0) {
+        this.maxRetriesExhaustedAt = Date.now();
+        console.error(`[Supervisor] Max restart attempts (${this.maxRestartAttempts}) reached. Cooling down for ${this.retryCooldownMs / 1000}s before retrying.`);
+      }
 
-      setTimeout(() => {
-        // Kill stale session if it exists
-        if (this.tmuxPath && this.isServerSessionAlive()) {
-          try {
-            execFileSync(this.tmuxPath, ['kill-session', '-t', `=${this.serverSessionName}`], {
-              stdio: 'ignore',
-            });
-          } catch { /* ignore */ }
-        }
-
-        this.spawnServer();
-      }, delay);
-    } else {
-      console.error(`[Supervisor] Max restart attempts (${this.maxRestartAttempts}) reached. Server down.`);
+      if ((Date.now() - this.maxRetriesExhaustedAt) >= this.retryCooldownMs) {
+        // Cooldown elapsed — reset and try again
+        console.log(`[Supervisor] Cooldown elapsed. Resetting restart counter.`);
+        this.restartAttempts = 0;
+        this.maxRetriesExhaustedAt = 0;
+        // Fall through to the restart logic below
+      } else {
+        return; // Still cooling down
+      }
     }
+
+    // Auto-restart with backoff
+    this.restartAttempts++;
+    const delay = this.restartBackoffMs * Math.pow(2, this.restartAttempts - 1);
+    console.log(`[Supervisor] Server unhealthy. Restart attempt ${this.restartAttempts}/${this.maxRestartAttempts} in ${delay}ms`);
+    this.emit('serverRestarting', this.restartAttempts);
+
+    setTimeout(() => {
+      // Kill stale session if it exists
+      if (this.tmuxPath && this.isServerSessionAlive()) {
+        try {
+          execFileSync(this.tmuxPath, ['kill-session', '-t', `=${this.serverSessionName}`], {
+            stdio: 'ignore',
+          });
+        } catch { /* ignore */ }
+      }
+
+      this.spawnServer();
+    }, delay);
   }
 }

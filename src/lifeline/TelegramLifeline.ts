@@ -25,7 +25,9 @@ import path from 'node:path';
 import pc from 'picocolors';
 import { loadConfig, ensureStateDir } from '../core/Config.js';
 import { registerPort, unregisterPort, startHeartbeat } from '../core/PortRegistry.js';
-import { installAutoStart } from '../commands/setup.js';
+// setup.ts uses @inquirer/prompts which requires Node 20.12+
+// Dynamic import to avoid breaking the lifeline on older Node versions
+// import { installAutoStart } from '../commands/setup.js';
 import { MessageQueue, type QueuedMessage } from './MessageQueue.js';
 import { ServerSupervisor } from './ServerSupervisor.js';
 
@@ -213,6 +215,8 @@ export class TelegramLifeline {
     // The user must always be able to reach their agent remotely — this is non-negotiable.
     try {
       if (!this.isAutostartInstalled()) {
+        // Dynamic import — setup.ts uses @inquirer/prompts which requires Node 20.12+
+        const { installAutoStart } = await import('../commands/setup.js');
         const installed = installAutoStart(this.projectConfig.projectName, this.projectConfig.projectDir, true);
         if (installed) {
           console.log(pc.green(`  Auto-start self-healed: installed ${process.platform === 'darwin' ? 'LaunchAgent' : 'systemd service'}`));
@@ -368,9 +372,13 @@ export class TelegramLifeline {
     if (cmd === '/lifeline' || cmd === '/lifeline status') {
       const status = this.supervisor.getStatus();
       const queueSize = this.queue.length;
+      let serverLine = status.healthy ? '● healthy' : status.running ? '○ unhealthy' : '✗ down';
+      if (status.coolingDown) {
+        serverLine += ` (cooldown: ${Math.ceil(status.cooldownRemainingMs / 1000)}s)`;
+      }
       const lines = [
         `Lifeline Status:`,
-        `  Server: ${status.healthy ? '● healthy' : status.running ? '○ unhealthy' : '✗ down'}`,
+        `  Server: ${serverLine}`,
         `  Restart attempts: ${status.restartAttempts}`,
         `  Queued messages: ${queueSize}`,
         `  Last healthy: ${status.lastHealthy ? new Date(status.lastHealthy).toISOString().slice(11, 19) : 'never'}`,

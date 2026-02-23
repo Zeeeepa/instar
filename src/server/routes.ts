@@ -1665,7 +1665,17 @@ export function createRoutes(ctx: RouteContext): Router {
         res.json({ ok: true, forwarded: true, method: 'registry-inject', session: targetSession });
       } else {
         // No session or session dead — auto-spawn a new one
-        const topicName = targetSession || `topic-${topicId}`;
+        // Use topic name from registry, NOT the tmux session name.
+        // tmux names include the project prefix (e.g., "ai-guy-lifeline"), and
+        // spawnInteractiveSession prepends it again → cascading names.
+        let topicName = `topic-${topicId}`;
+        try {
+          if (fs.existsSync(registryPath)) {
+            const reg = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+            const stored = reg.topicToName?.[String(topicId)];
+            if (stored) topicName = stored;
+          }
+        } catch { /* fall through to default */ }
         console.log(`[telegram-forward] No live session for topic ${topicId}, spawning "${topicName}"...`);
 
         const contextLines = [
