@@ -284,7 +284,25 @@ export class TelegramLifeline {
     // Forward to server if healthy
     if (this.supervisor.healthy) {
       const forwarded = await this.forwardToServer(topicId, text, msg);
-      if (forwarded) return;
+      if (forwarded) {
+        // Delivery confirmation — user knows message reached the server
+        await this.sendToTopic(topicId, '✓ Delivered');
+        return;
+      }
+      // Server appears healthy but forward failed — queue with accurate message
+      this.queue.enqueue({
+        id: `tg-${msg.message_id}`,
+        topicId,
+        text,
+        fromUserId: msg.from.id,
+        fromUsername: msg.from.username,
+        fromFirstName: msg.from.first_name,
+        timestamp: new Date(msg.date * 1000).toISOString(),
+      });
+      await this.sendToTopic(topicId,
+        `Server is restarting. Your message has been queued (${this.queue.length} in queue). It will be delivered when the server recovers.`
+      );
+      return;
     }
 
     // Server is down — queue the message
