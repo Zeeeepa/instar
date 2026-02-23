@@ -96,13 +96,23 @@ export async function runSetup(opts?: { classic?: boolean }): Promise<void> {
     gitContext = ' This directory is NOT inside a git repository.';
   }
 
-  // Pre-install Playwright browser binaries so the wizard has browser automation
-  // available from the start. This runs BEFORE launching Claude Code, eliminating
-  // the "need to restart to load MCP" problem. Silent on success, warns on failure.
+  // Pre-install Playwright browser binaries AND register the MCP server so the
+  // wizard has browser automation available from the start. Both are required:
+  // - Browser binaries: Chromium needs to be downloaded before Playwright MCP can use it
+  // - MCP registration: Claude Code loads MCP servers from .claude/settings.json at startup,
+  //   so the file must exist BEFORE we spawn the Claude session
+  //
+  // The .claude/settings.json is excluded from the npm package (.npmignore) since it's
+  // dev-only config, so we need to create it here for fresh installations.
   const instarRoot = findInstarRoot();
   console.log(pc.dim('  Preparing browser automation for Telegram setup...'));
+
+  // Step 1: Ensure .claude/settings.json has Playwright MCP registered
+  ensurePlaywrightMcp(instarRoot);
+
+  // Step 2: Pre-install Playwright browser binaries
   try {
-    execFileSync('npx', ['playwright', 'install', 'chromium'], {
+    execFileSync('npx', ['-y', 'playwright', 'install', 'chromium'], {
       cwd: instarRoot,
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 120000, // 2 minutes — first install downloads ~150MB
@@ -144,6 +154,40 @@ export async function runSetup(opts?: { classic?: boolean }): Promise<void> {
       runClassicSetup().then(resolve).catch(reject);
     });
   });
+}
+
+/**
+ * Ensure .claude/settings.json in the given directory has the Playwright MCP
+ * server registered. This is critical for the setup wizard — Claude Code loads
+ * MCP servers at startup, so the file must exist BEFORE spawning the session.
+ *
+ * The .npmignore excludes .claude/settings*.json from the published package,
+ * so this function creates it for fresh npx installations.
+ */
+function ensurePlaywrightMcp(dir: string): void {
+  const claudeDir = path.join(dir, '.claude');
+  fs.mkdirSync(claudeDir, { recursive: true });
+  const settingsPath = path.join(claudeDir, 'settings.json');
+
+  let settings: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    } catch { /* start fresh if corrupted */ }
+  }
+
+  // Register Playwright MCP server if not already present
+  if (!settings.mcpServers) {
+    settings.mcpServers = {};
+  }
+  const mcpServers = settings.mcpServers as Record<string, unknown>;
+  if (!mcpServers.playwright) {
+    mcpServers.playwright = {
+      command: 'npx',
+      args: ['-y', '@playwright/mcp@latest'],
+    };
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  }
 }
 
 /**
@@ -438,6 +482,22 @@ async function runClassicSetup(): Promise<void> {
   } else {
     fs.writeFileSync(gitignorePath, instarIgnores.trim() + '\n');
     console.log(`  ${pc.green('✓')} Created .gitignore`);
+  }
+
+  // Install Playwright MCP for browser automation in future Claude sessions
+  ensurePlaywrightMcp(projectDir);
+  console.log(`  ${pc.green('✓')} Configured browser automation (Playwright MCP)`);
+
+  // Pre-install Playwright browser binaries so first use doesn't hang
+  try {
+    execFileSync('npx', ['-y', 'playwright', 'install', 'chromium'], {
+      cwd: projectDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 120000,
+    });
+    console.log(`  ${pc.green('✓')} Installed browser binaries`);
+  } catch {
+    console.log(pc.dim('  (Browser binaries will be installed on first use)'));
   }
 
   // Install Telegram relay script if configured
