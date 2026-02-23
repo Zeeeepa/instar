@@ -350,6 +350,24 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
+   * Send a tmux key sequence (without -l literal flag).
+   * Use for special keys like 'C-c' (Ctrl+C), 'Enter', 'Escape'.
+   * Unlike sendInput() which uses -l (literal), this sends key names directly.
+   */
+  sendKey(tmuxSession: string, key: string): boolean {
+    try {
+      execFileSync(
+        this.config.tmuxPath,
+        ['send-keys', '-t', `=${tmuxSession}:`, key],
+        { encoding: 'utf-8', timeout: 5000 }
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * List all sessions that are currently running.
    * Pure filter — does not mutate state. The monitor tick handles lifecycle transitions.
    */
@@ -538,31 +556,25 @@ export class SessionManager extends EventEmitter {
     const exactTarget = `=${tmuxSession}:`;
     try {
       if (text.includes('\n')) {
-        // Multi-line: write to temp file, load into tmux buffer, paste into pane.
+        // Multi-line: pipe into tmux load-buffer via stdin, then paste into pane.
         // This avoids newlines being treated as Enter keypresses which would
         // fragment the message into multiple Claude prompts.
-        const tmpDir = path.join('/tmp', 'instar-inject');
-        fs.mkdirSync(tmpDir, { recursive: true });
-        const tmpPath = path.join(tmpDir, `msg-${Date.now()}-${process.pid}.txt`);
-        fs.writeFileSync(tmpPath, text);
-        try {
-          execFileSync(this.config.tmuxPath, ['load-buffer', tmpPath], {
-            encoding: 'utf-8', timeout: 5000,
-          });
-          execFileSync(this.config.tmuxPath, ['paste-buffer', '-t', exactTarget, '-p'], {
-            encoding: 'utf-8', timeout: 5000,
-          });
-          // Brief delay to let the terminal process the paste before sending Enter.
-          // Without this, the Enter arrives before paste processing completes and
-          // the message sits in the input buffer without being submitted.
-          execFileSync('/bin/sleep', ['0.3'], { timeout: 2000 });
-          // Send Enter to submit
-          execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, 'Enter'], {
-            encoding: 'utf-8', timeout: 5000,
-          });
-        } finally {
-          try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
-        }
+        // Uses stdin pipe (load-buffer -) instead of temp files to avoid
+        // macOS TCC "access data from other apps" permission prompts.
+        execFileSync(this.config.tmuxPath, ['load-buffer', '-'], {
+          encoding: 'utf-8', timeout: 5000, input: text,
+        });
+        execFileSync(this.config.tmuxPath, ['paste-buffer', '-t', exactTarget, '-p'], {
+          encoding: 'utf-8', timeout: 5000,
+        });
+        // Brief delay to let the terminal process the paste before sending Enter.
+        // Without this, the Enter arrives before paste processing completes and
+        // the message sits in the input buffer without being submitted.
+        execFileSync('/bin/sleep', ['0.3'], { timeout: 2000 });
+        // Send Enter to submit
+        execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, 'Enter'], {
+          encoding: 'utf-8', timeout: 5000,
+        });
       } else {
         // Single-line: simple send-keys
         execFileSync(this.config.tmuxPath, ['send-keys', '-t', exactTarget, '-l', text], {

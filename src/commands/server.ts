@@ -37,6 +37,7 @@ import { QuotaTracker } from '../monitoring/QuotaTracker.js';
 import { AccountSwitcher } from '../monitoring/AccountSwitcher.js';
 import { QuotaNotifier } from '../monitoring/QuotaNotifier.js';
 import { classifySessionDeath } from '../monitoring/QuotaExhaustionDetector.js';
+import { SessionWatchdog } from '../monitoring/SessionWatchdog.js';
 import type { Message } from '../core/types.js';
 import { installAutoStart } from './setup.js';
 
@@ -737,6 +738,39 @@ export async function startServer(options: StartOptions): Promise<void> {
       });
     }
 
+    // Session Watchdog — auto-remediation for stuck commands
+    let watchdog: SessionWatchdog | undefined;
+    if (config.monitoring.watchdog?.enabled) {
+      watchdog = new SessionWatchdog(config, sessionManager, state);
+
+      watchdog.on('intervention', (event: any) => {
+        if (telegram) {
+          const topicId = telegram.getTopicForSession(event.sessionName);
+          if (topicId) {
+            const levelNames = ['Monitoring', 'Ctrl+C', 'SIGTERM', 'SIGKILL', 'Kill Session'];
+            const levelName = levelNames[event.level] || `Level ${event.level}`;
+            telegram.sendToTopic(topicId,
+              `🔧 Watchdog [${levelName}]: ${event.action}\nStuck: \`${event.stuckCommand.slice(0, 60)}\``
+            ).catch(() => {});
+          }
+        }
+      });
+
+      watchdog.on('recovery', (sessionName: string, fromLevel: number) => {
+        if (telegram) {
+          const topicId = telegram.getTopicForSession(sessionName);
+          if (topicId) {
+            telegram.sendToTopic(topicId,
+              `✅ Watchdog: session recovered (was at escalation level ${fromLevel})`
+            ).catch(() => {});
+          }
+        }
+      });
+
+      watchdog.start();
+      console.log(pc.green('  Session Watchdog enabled'));
+    }
+
     // Set up feedback and update checking
     let feedback: FeedbackManager | undefined;
     if (config.feedback) {
@@ -919,7 +953,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     });
     sleepWakeDetector.start();
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog });
     await server.start();
 
     // Start tunnel AFTER server is listening

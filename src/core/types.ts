@@ -820,6 +820,14 @@ export interface MonitoringConfig {
   memoryMonitoring: boolean;
   /** Health check interval in ms */
   healthCheckIntervalMs: number;
+  /** Session watchdog — auto-remediation for stuck commands */
+  watchdog?: {
+    enabled: boolean;
+    /** Seconds before a command is considered stuck (default: 180) */
+    stuckCommandSec?: number;
+    /** Poll interval in ms (default: 30000) */
+    pollIntervalMs?: number;
+  };
 }
 
 /** @deprecated Use InstarConfig instead */

@@ -23,6 +23,7 @@ import type { TelegraphService } from '../publishing/TelegraphService.js';
 import type { PrivateViewer } from '../publishing/PrivateViewer.js';
 import type { TunnelManager } from '../tunnel/TunnelManager.js';
 import type { EvolutionManager } from '../core/EvolutionManager.js';
+import type { SessionWatchdog } from '../monitoring/SessionWatchdog.js';
 import { createRoutes } from './routes.js';
 import { corsMiddleware, authMiddleware, requestTimeout, errorHandler } from './middleware.js';
 
@@ -49,6 +50,7 @@ export class AgentServer {
     viewer?: PrivateViewer;
     tunnel?: TunnelManager;
     evolution?: EvolutionManager;
+    watchdog?: SessionWatchdog;
   }) {
     this.config = options.config;
     this.startTime = new Date();
@@ -78,6 +80,7 @@ export class AgentServer {
       viewer: options.viewer ?? null,
       tunnel: options.tunnel ?? null,
       evolution: options.evolution ?? null,
+      watchdog: options.watchdog ?? null,
       startTime: this.startTime,
     });
     this.app.use(routes);

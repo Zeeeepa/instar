@@ -11,11 +11,13 @@ import path from 'node:path';
 import type { SessionManager } from '../core/SessionManager.js';
 import type { JobScheduler } from '../scheduler/JobScheduler.js';
 import type { HealthStatus, ComponentHealth, InstarConfig } from '../core/types.js';
+import type { SessionWatchdog } from './SessionWatchdog.js';
 
 export class HealthChecker {
   private config: InstarConfig;
   private sessionManager: SessionManager;
   private scheduler: JobScheduler | null;
+  private watchdog: SessionWatchdog | null;
   private checkInterval: ReturnType<typeof setInterval> | null = null;
   private lastStatus: HealthStatus | null = null;
 
@@ -23,10 +25,12 @@ export class HealthChecker {
     config: InstarConfig,
     sessionManager: SessionManager,
     scheduler: JobScheduler | null = null,
+    watchdog: SessionWatchdog | null = null,
   ) {
     this.config = config;
     this.sessionManager = sessionManager;
     this.scheduler = scheduler;
+    this.watchdog = watchdog;
   }
 
   /**
@@ -42,6 +46,18 @@ export class HealthChecker {
 
     if (this.scheduler) {
       components.scheduler = this.checkScheduler();
+    }
+
+    if (this.watchdog) {
+      const wdStatus = this.watchdog.getStatus();
+      const intervening = wdStatus.sessions.filter(s => s.escalation && s.escalation.level > 0);
+      components.watchdog = {
+        status: intervening.length > 0 ? 'degraded' : 'healthy',
+        message: intervening.length > 0
+          ? `Intervening on ${intervening.length} session(s)`
+          : `Monitoring${wdStatus.enabled ? '' : ' (disabled)'}`,
+        lastCheck: new Date().toISOString(),
+      };
     }
 
     // Aggregate: worst component status becomes overall status

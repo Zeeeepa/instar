@@ -28,6 +28,7 @@ import type { PrivateViewer } from '../publishing/PrivateViewer.js';
 import type { TunnelManager } from '../tunnel/TunnelManager.js';
 import type { EvolutionManager } from '../core/EvolutionManager.js';
 import type { EvolutionStatus, EvolutionType, GapCategory } from '../core/types.js';
+import type { SessionWatchdog } from '../monitoring/SessionWatchdog.js';
 
 export interface RouteContext {
   config: InstarConfig;
@@ -46,6 +47,7 @@ export interface RouteContext {
   viewer: PrivateViewer | null;
   tunnel: TunnelManager | null;
   evolution: EvolutionManager | null;
+  watchdog: SessionWatchdog | null;
   startTime: Date;
 }
 
@@ -1921,6 +1923,29 @@ export function createRoutes(ctx: RouteContext): Router {
       return;
     }
     res.json({ ok: true, id: req.params.id, status });
+  });
+
+  // ── Watchdog ──────────────────────────────────────────────────
+  router.get('/watchdog/status', (req, res) => {
+    if (!ctx.watchdog) {
+      res.json({ enabled: false, sessions: [], interventionHistory: [] });
+      return;
+    }
+    res.json(ctx.watchdog.getStatus());
+  });
+
+  router.post('/watchdog/toggle', (req, res) => {
+    if (!ctx.watchdog) {
+      res.status(404).json({ error: 'Watchdog not configured' });
+      return;
+    }
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'enabled (boolean) required' });
+      return;
+    }
+    ctx.watchdog.setEnabled(enabled);
+    res.json({ enabled: ctx.watchdog.isEnabled() });
   });
 
   return router;
