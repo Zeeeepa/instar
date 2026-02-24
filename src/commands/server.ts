@@ -1073,6 +1073,13 @@ export async function startServer(options: StartOptions): Promise<void> {
               const hasReplyScript = !!replyScript;
               const attentionTopicId = state.get<number>('agent-attention-topic') || state.get<number>('agent-update-topic') || 0;
 
+              // Gather concrete details the agent should include in the message
+              const dashboardPin = config.dashboardPin || '';
+              const tunnelUrl = tunnel?.url || '';
+              const dashboardUrl = tunnelUrl
+                ? `${tunnelUrl}/dashboard`
+                : `http://localhost:${config.port}/dashboard`;
+
               await sessionManager.spawnSession({
                 name: 'upgrade-notify',
                 prompt: [
@@ -1080,14 +1087,22 @@ export async function startServer(options: StartOptions): Promise<void> {
                   '',
                   'You have been updated to a new Instar version. Read the upgrade guide below, then:',
                   '',
-                  '1. Compose a brief message (3-6 sentences) for your user about the new features.',
+                  '1. Compose a brief, personalized message (3-8 sentences) for your user about the new features.',
+                  '   RULES:',
+                  '   - Lead with the biggest USER-VISIBLE feature (usually the dashboard if this is the first time)',
+                  '   - Include CONCRETE details — actual URLs, PINs, things they can click/use right now',
+                  '   - NEVER mention "bearer tokens", "auth tokens", or internal implementation details',
                   '   - Focus on what matters to THEM, not internal plumbing',
-                  '   - Explain features in practical terms',
                   '   - Be conversational and helpful',
+                  '',
+                  '   CONCRETE DETAILS TO INCLUDE:',
+                  `   - Dashboard URL: ${dashboardUrl}`,
+                  dashboardPin ? `   - Dashboard PIN: ${dashboardPin}` : '   - No dashboard PIN set',
+                  `   - Current version: ${getInstalledVersion()}`,
                   '',
                   `2. Send the message via Telegram:`,
                   hasReplyScript && attentionTopicId
-                    ? `   Run: echo "YOUR_MESSAGE" | bash ${replyScript} ${attentionTopicId}`
+                    ? `   Run: cat <<'MSGEOF' | bash ${replyScript} ${attentionTopicId}\nYOUR_MESSAGE_HERE\nMSGEOF`
                     : `   Use the telegram-reply script in .instar/scripts/ to send to the attention/update topic.`,
                   '',
                   '3. Run: instar upgrade-ack',

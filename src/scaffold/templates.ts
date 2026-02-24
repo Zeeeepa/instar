@@ -287,9 +287,9 @@ This routes feedback to the Instar maintainers automatically. Valid types: \`bug
 **Dashboard** — Visual web interface for monitoring and managing sessions. Accessible from any device (phone, tablet, laptop) via tunnel.
 - Local: \`http://localhost:${port}/dashboard\`
 - Remote: When a tunnel is running, the dashboard is accessible at \`{tunnelUrl}/dashboard\`
-- Authentication: Uses a 6-digit PIN (configured via \`dashboardPin\` in \`.instar/config.json\`) — no need to enter the full bearer token
+- Authentication: Uses a 6-digit PIN (auto-generated in \`dashboardPin\` in \`.instar/config.json\`). NEVER mention "bearer tokens" or "auth tokens" to users — just give them the PIN.
 - Features: Real-time terminal streaming of all running sessions, session management, model badges, mobile-responsive
-- **Sharing the dashboard**: When the user wants to check on sessions from their phone, give them the tunnel URL + PIN. Check tunnel status: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/tunnel\`
+- **Sharing the dashboard**: When the user wants to check on sessions from their phone, give them the tunnel URL + PIN. Read the PIN from your config.json. Check tunnel status: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/tunnel\`
 
 **Scripts** — Reusable capabilities in \`.claude/scripts/\`.
 

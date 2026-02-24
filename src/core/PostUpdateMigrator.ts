@@ -60,6 +60,7 @@ export class PostUpdateMigrator {
     this.migrateClaudeMd(result);
     this.migrateScripts(result);
     this.migrateSettings(result);
+    this.migrateConfig(result);
 
     return result;
   }
@@ -247,9 +248,9 @@ Strip the \`[telegram:N]\` prefix before interpreting the message. Respond natur
 **Dashboard** — Visual web interface for monitoring and managing sessions. Accessible from any device (phone, tablet, laptop) via tunnel.
 - Local: \`http://localhost:${port}/dashboard\`
 - Remote: When a tunnel is running, the dashboard is accessible at \`{tunnelUrl}/dashboard\`
-- Authentication: Uses a 6-digit PIN (configured via \`dashboardPin\` in \`.instar/config.json\`) — no need to enter the full bearer token
+- Authentication: Uses a 6-digit PIN (auto-generated in \`dashboardPin\` in \`.instar/config.json\`). NEVER mention "bearer tokens" or "auth tokens" to users — just give them the PIN.
 - Features: Real-time terminal streaming of all running sessions, session management, model badges, mobile-responsive
-- **Sharing the dashboard**: When the user wants to check on sessions from their phone, give them the tunnel URL + PIN. Check tunnel status: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/tunnel\`
+- **Sharing the dashboard**: When the user wants to check on sessions from their phone, give them the tunnel URL + PIN. Read the PIN from your config.json. Check tunnel status: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/tunnel\`
 `;
       // Insert after Server Status or before Scripts section
       const insertBefore = content.indexOf('**Scripts**');
@@ -415,6 +416,47 @@ Strip the \`[telegram:N]\` prefix before interpreting the message. Respond natur
         fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       } catch (err) {
         result.errors.push(`settings.json write: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  /**
+   * Migrate the agent's config.json with sensible defaults for new features.
+   * Only adds missing fields — never overwrites existing user customizations.
+   */
+  private migrateConfig(result: MigrationResult): void {
+    const configPath = path.join(this.config.stateDir, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      result.skipped.push('config.json (not found)');
+      return;
+    }
+
+    let config: Record<string, unknown>;
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } catch (err) {
+      result.errors.push(`config.json read: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+
+    let patched = false;
+
+    // Auto-generate dashboardPin if missing — the dashboard should always be
+    // accessible via PIN, not bearer token. Users don't need to know about tokens.
+    if (!config.dashboardPin && config.authToken) {
+      const pin = String(Math.floor(100000 + Math.random() * 900000)); // 6-digit PIN
+      config.dashboardPin = pin;
+      patched = true;
+      result.upgraded.push(`config.json: generated dashboard PIN (${pin})`);
+    } else if (config.dashboardPin) {
+      result.skipped.push('config.json: dashboard PIN already set');
+    }
+
+    if (patched) {
+      try {
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      } catch (err) {
+        result.errors.push(`config.json write: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
