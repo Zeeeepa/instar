@@ -12,9 +12,30 @@ import type { Session, JobState, ActivityEvent } from './types.js';
 
 export class StateManager {
   private stateDir: string;
+  private _readOnly: boolean = false;
 
   constructor(stateDir: string) {
     this.stateDir = stateDir;
+  }
+
+  /** Whether this StateManager is in read-only mode (standby machine). */
+  get readOnly(): boolean {
+    return this._readOnly;
+  }
+
+  /**
+   * Set read-only mode. When true, all write operations throw.
+   * Used on standby machines to prevent accidental state forks.
+   */
+  setReadOnly(readOnly: boolean): void {
+    this._readOnly = readOnly;
+  }
+
+  /** Guard that throws if in read-only mode. */
+  private guardWrite(operation: string): void {
+    if (this._readOnly) {
+      throw new Error(`StateManager is read-only (this machine is on standby). Blocked: ${operation}`);
+    }
   }
 
   /** Validate a key/ID contains only safe characters to prevent path traversal. */
@@ -39,6 +60,7 @@ export class StateManager {
   }
 
   saveSession(session: Session): void {
+    this.guardWrite('saveSession');
     this.validateKey(session.id, 'sessionId');
     const filePath = path.join(this.stateDir, 'state', 'sessions', `${session.id}.json`);
     this.atomicWrite(filePath, JSON.stringify(session, null, 2));
@@ -79,6 +101,7 @@ export class StateManager {
   }
 
   saveJobState(state: JobState): void {
+    this.guardWrite('saveJobState');
     this.validateKey(state.slug, 'job slug');
     const filePath = path.join(this.stateDir, 'state', 'jobs', `${state.slug}.json`);
     this.atomicWrite(filePath, JSON.stringify(state, null, 2));
@@ -87,6 +110,7 @@ export class StateManager {
   // ── Activity Events ───────────────────────────────────────────
 
   appendEvent(event: ActivityEvent): void {
+    this.guardWrite('appendEvent');
     try {
       const date = new Date().toISOString().slice(0, 10);
       const dir = path.join(this.stateDir, 'logs');
@@ -156,6 +180,7 @@ export class StateManager {
   }
 
   set<T>(key: string, value: T): void {
+    this.guardWrite('set');
     this.validateKey(key, 'state key');
     const filePath = path.join(this.stateDir, 'state', `${key}.json`);
     const dir = path.dirname(filePath);
@@ -164,6 +189,7 @@ export class StateManager {
   }
 
   delete(key: string): boolean {
+    this.guardWrite('delete');
     this.validateKey(key, 'state key');
     const filePath = path.join(this.stateDir, 'state', `${key}.json`);
     if (!fs.existsSync(filePath)) return false;

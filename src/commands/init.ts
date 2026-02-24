@@ -32,10 +32,11 @@ import os from 'node:os';
 import path from 'node:path';
 import pc from 'picocolors';
 import { randomUUID } from 'node:crypto';
-import { detectTmuxPath, detectClaudePath, ensureStateDir } from '../core/Config.js';
+import { detectTmuxPath, detectClaudePath, ensureStateDir, standaloneAgentsDir } from '../core/Config.js';
 import { ensurePrerequisites } from '../core/Prerequisites.js';
-import { allocatePort } from '../core/PortRegistry.js';
+import { allocatePort, registerAgent, validateAgentName } from '../core/AgentRegistry.js';
 import { defaultIdentity } from '../scaffold/bootstrap.js';
+import { MachineIdentityManager, ensureGitignore } from '../core/MachineIdentity.js';
 import {
   generateAgentMd,
   generateUserMd,
@@ -49,6 +50,8 @@ interface InitOptions {
   name?: string;
   port?: number;
   interactive?: boolean;
+  /** Create a standalone agent at ~/.instar/agents/<name>/ */
+  standalone?: boolean;
   /** Skip prerequisite checks (for testing). When true, uses provided or default paths. */
   skipPrereqs?: boolean;
 }
@@ -57,6 +60,17 @@ interface InitOptions {
  * Main init entry point. Handles both fresh and existing project modes.
  */
 export async function initProject(options: InitOptions): Promise<void> {
+  // Standalone mode: create at ~/.instar/agents/<name>/
+  if (options.standalone) {
+    const agentName = options.name;
+    if (!agentName) {
+      console.log(pc.red('  A name is required for standalone agents.'));
+      console.log(`  Usage: ${pc.cyan('instar init --standalone my-agent')}`);
+      process.exit(1);
+    }
+    return initStandaloneAgent(agentName, options);
+  }
+
   // Detect mode: if a project name argument was passed, it's fresh install
   const projectName = options.name;
   const isFresh = !!projectName && !options.dir;
@@ -125,8 +139,8 @@ async function initFreshProject(projectName: string, options: InitOptions): Prom
     port = options.port;
   } else {
     try {
-      port = allocatePort(projectName);
-      console.log(`  ${pc.green('✓')} Auto-allocated port ${port} (from ~/.instar/port-registry.json)`);
+      port = allocatePort(projectDir);
+      console.log(`  ${pc.green('✓')} Auto-allocated port ${port} (from ~/.instar/registry.json)`);
     } catch {
       port = 4040; // Fallback to default
     }
@@ -267,15 +281,50 @@ async function initFreshProject(projectName: string, options: InitOptions): Prom
 node_modules/
 `;
   fs.writeFileSync(path.join(projectDir, '.gitignore'), gitignore);
+  // Add multi-machine gitignore entries (private keys, secrets, pairing)
+  ensureGitignore(projectDir);
   console.log(`  ${pc.green('✓')} Created .gitignore`);
+
+  // Generate machine identity (cryptographic keypairs for multi-machine)
+  const machineIdentityManager = new MachineIdentityManager(stateDir);
+  const machineIdentity = await machineIdentityManager.generateIdentity({ role: 'awake' });
+  console.log(`  ${pc.green('✓')} Generated machine identity (${machineIdentity.name})`);
 
   // Initialize git repo
   try {
     const { execFileSync } = await import('node:child_process');
     execFileSync('git', ['init'], { cwd: projectDir, stdio: 'pipe' });
     console.log(`  ${pc.green('✓')} Initialized git repository`);
+
+    // Configure git commit signing with machine identity
+    try {
+      const { GitSyncManager } = await import('../core/GitSync.js');
+      const { SecurityLog } = await import('../core/SecurityLog.js');
+      const securityLog = new SecurityLog(stateDir);
+      const gitSync = new GitSyncManager({
+        projectDir,
+        stateDir,
+        identityManager: machineIdentityManager,
+        securityLog,
+        machineId: machineIdentity.machineId,
+      });
+      if (!gitSync.isSigningConfigured()) {
+        gitSync.configureCommitSigning();
+        console.log(`  ${pc.green('✓')} Configured git commit signing`);
+      }
+    } catch {
+      // Non-fatal — signing can be configured later
+    }
   } catch {
     // Git not available — that's fine
+  }
+
+  // Register in global agent registry
+  try {
+    registerAgent(projectDir, projectName, port, 'project-bound', 0);
+    console.log(`  ${pc.green('✓')} Registered in global agent registry`);
+  } catch {
+    // Non-fatal — will register on first server start
   }
 
   // Summary
@@ -320,7 +369,7 @@ async function initExistingProject(options: InitOptions): Promise<void> {
     port = options.port;
   } else {
     try {
-      port = allocatePort(projectName);
+      port = allocatePort(projectDir);
     } catch {
       port = 4040;
     }
@@ -489,6 +538,17 @@ async function initExistingProject(options: InitOptions): Promise<void> {
     fs.writeFileSync(gitignorePath, instarIgnores.trim() + '\n');
     console.log(pc.green('  Created:') + ' .gitignore');
   }
+  // Add multi-machine gitignore entries (private keys, secrets, pairing)
+  ensureGitignore(projectDir);
+
+  // Generate machine identity if it doesn't exist
+  const machineIdentityManager = new MachineIdentityManager(stateDir);
+  if (!machineIdentityManager.hasIdentity()) {
+    const machineIdentity = await machineIdentityManager.generateIdentity({ role: 'awake' });
+    console.log(pc.green('  Created:') + ` machine identity (${machineIdentity.name})`);
+  } else {
+    console.log(pc.dim('  Exists:') + ' machine identity (preserved)');
+  }
 
   // Append agency principles to CLAUDE.md if it exists
   const claudeMdPath = path.join(projectDir, 'CLAUDE.md');
@@ -500,6 +560,14 @@ async function initExistingProject(options: InitOptions): Promise<void> {
     }
   }
 
+  // Register in global agent registry
+  try {
+    registerAgent(projectDir, projectName, port, 'project-bound', 0);
+    console.log(pc.green('  Registered in global agent registry'));
+  } catch {
+    // Non-fatal — will register on first server start
+  }
+
   console.log();
   console.log(pc.bold('Next steps:'));
   console.log(`  1. Review ${pc.cyan('.instar/AGENT.md')} and customize your agent's identity`);
@@ -509,6 +577,202 @@ async function initExistingProject(options: InitOptions): Promise<void> {
   console.log();
 }
 
+
+/**
+ * Standalone agent: create at ~/.instar/agents/<name>/ with full agent infrastructure.
+ * The agent's home IS the project — self-contained, no parent project.
+ */
+async function initStandaloneAgent(agentName: string, options: InitOptions): Promise<void> {
+  // Validate agent name
+  if (!validateAgentName(agentName)) {
+    console.log(pc.red(`  Invalid agent name: "${agentName}"`));
+    console.log('  Names must start with a letter or number, contain only letters, numbers, hyphens, and underscores.');
+    console.log('  Maximum 64 characters.');
+    process.exit(1);
+  }
+
+  const projectDir = path.join(standaloneAgentsDir(), agentName);
+  const stateDir = path.join(projectDir, '.instar');
+
+  // Check if already exists
+  if (fs.existsSync(path.join(stateDir, 'config.json'))) {
+    console.log(pc.red(`  Agent "${agentName}" already exists at ${projectDir}`));
+    console.log(`  To remove it: ${pc.cyan(`rm -rf ${projectDir}`)}`);
+    process.exit(1);
+  }
+
+  console.log(pc.bold(`\nCreating standalone agent: ${pc.cyan(agentName)}`));
+  console.log(pc.dim(`  Location: ${projectDir}`));
+  console.log();
+
+  // Check prerequisites
+  let tmuxPath: string;
+  let claudePath: string;
+
+  if (options.skipPrereqs) {
+    tmuxPath = detectTmuxPath() || '/usr/bin/tmux';
+    claudePath = detectClaudePath() || '/usr/bin/claude';
+  } else {
+    const prereqs = await ensurePrerequisites();
+    if (!prereqs.allMet) {
+      console.log(pc.red('\n  Prerequisites check failed. Fix the issues above and retry.'));
+      process.exit(1);
+    }
+    tmuxPath = prereqs.results.find(r => r.name === 'tmux')!.path!;
+    claudePath = prereqs.results.find(r => r.name === 'Claude CLI')!.path!;
+  }
+
+  // Auto-allocate port
+  let port: number;
+  if (options.port) {
+    port = options.port;
+  } else {
+    try {
+      port = allocatePort(projectDir);
+      console.log(`  ${pc.green('✓')} Auto-allocated port ${port}`);
+    } catch {
+      port = 4040;
+    }
+  }
+
+  // Create directory structure
+  fs.mkdirSync(projectDir, { recursive: true });
+  ensureStateDir(stateDir);
+  console.log(`  ${pc.green('✓')} Created ${projectDir}`);
+
+  // Generate identity
+  const identity = defaultIdentity(agentName);
+  const authToken = randomUUID();
+
+  // Write identity files
+  fs.writeFileSync(path.join(stateDir, 'AGENT.md'), generateAgentMd(identity));
+  console.log(`  ${pc.green('✓')} Created AGENT.md`);
+
+  fs.writeFileSync(path.join(stateDir, 'USER.md'), generateUserMd(identity.userName));
+  console.log(`  ${pc.green('✓')} Created USER.md`);
+
+  fs.writeFileSync(path.join(stateDir, 'MEMORY.md'), generateMemoryMd(agentName));
+  console.log(`  ${pc.green('✓')} Created MEMORY.md`);
+
+  // Write config
+  const config: Record<string, unknown> = {
+    projectName: agentName,
+    projectDir,
+    port,
+    agentType: 'standalone',
+    sessions: {
+      tmuxPath,
+      claudePath,
+      maxSessions: 3,
+      protectedSessions: [`${agentName}-server`],
+    },
+    scheduler: { enabled: false, maxParallelJobs: 2 },
+    messaging: [],
+    monitoring: {
+      quotaTracking: true,
+      memoryMonitoring: true,
+      healthCheckIntervalMs: 30000,
+    },
+    authToken,
+  };
+  fs.writeFileSync(path.join(stateDir, 'config.json'), JSON.stringify(config, null, 2));
+  console.log(`  ${pc.green('✓')} Created config.json`);
+
+  // Write empty jobs and users
+  fs.writeFileSync(path.join(stateDir, 'jobs.json'), JSON.stringify([], null, 2));
+  fs.writeFileSync(path.join(stateDir, 'users.json'), JSON.stringify([], null, 2));
+
+  // Create CLAUDE.md at project root
+  fs.writeFileSync(
+    path.join(projectDir, 'CLAUDE.md'),
+    generateClaudeMd(agentName, agentName, port, false),
+  );
+  console.log(`  ${pc.green('✓')} Created CLAUDE.md`);
+
+  // Create .claude/ structure
+  const claudeDir = path.join(projectDir, '.claude');
+  fs.mkdirSync(path.join(claudeDir, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(claudeDir, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({
+    hooks: {
+      PreToolUse: [],
+      PostToolUse: [],
+    },
+  }, null, 2));
+
+  // Create .gitignore
+  fs.writeFileSync(path.join(projectDir, '.gitignore'), [
+    '# Runtime state',
+    '.instar/state/',
+    '.instar/logs/',
+    '.instar/*.tmp',
+    '',
+    '# Secrets',
+    '.instar/config.json',
+    '.instar/machine/',
+    '.instar/secrets/',
+    '',
+    '# Backups (local only)',
+    '.instar/backups/',
+    '',
+    '# Derived data',
+    '.instar/memory.db',
+    '.instar/memory.db-*',
+    '',
+    '# Claude Code',
+    '.claude/projects/',
+    '.claude/todos/',
+  ].join('\n') + '\n');
+  console.log(`  ${pc.green('✓')} Created .gitignore`);
+
+  // Generate machine identity
+  try {
+    const machineIdentityManager = new MachineIdentityManager(stateDir);
+    const machineIdentity = await machineIdentityManager.generateIdentity({ name: agentName });
+    ensureGitignore(stateDir);
+    console.log(`  ${pc.green('✓')} Generated machine identity: ${machineIdentity.machineId.slice(0, 12)}...`);
+  } catch {
+    // Non-fatal
+  }
+
+  // Install behavioral guardrails (hooks + Claude settings)
+  try {
+    refreshHooksAndSettings(projectDir, stateDir);
+    console.log(`  ${pc.green('✓')} Installed behavioral guardrails`);
+  } catch {
+    // Non-fatal
+  }
+
+  // Register in global agent registry
+  try {
+    registerAgent(projectDir, agentName, port, 'standalone', 0);
+    console.log(`  ${pc.green('✓')} Registered in global agent registry`);
+  } catch {
+    // Non-fatal
+  }
+
+  // Summary
+  console.log();
+  console.log(pc.bold(pc.green('  Standalone agent created!')));
+  console.log();
+  console.log(`  ${pc.cyan(agentName)}/`);
+  console.log(`  ├── CLAUDE.md              ${pc.dim('Agent instructions')}`);
+  console.log(`  ├── .instar/`);
+  console.log(`  │   ├── AGENT.md           ${pc.dim('Agent identity')}`);
+  console.log(`  │   ├── USER.md            ${pc.dim('User context')}`);
+  console.log(`  │   ├── MEMORY.md          ${pc.dim('Persistent memory')}`);
+  console.log(`  │   ├── config.json        ${pc.dim('Configuration')}`);
+  console.log(`  │   └── hooks/             ${pc.dim('Behavioral guardrails')}`);
+  console.log(`  └── .gitignore`);
+  console.log();
+  console.log(pc.bold('  Next steps:'));
+  console.log(`  ${pc.dim('1.')} ${pc.cyan(`instar server start ${agentName}`)}   ${pc.dim('Start the agent')}`);
+  console.log(`  ${pc.dim('2.')} ${pc.cyan(`instar add telegram`)}               ${pc.dim('Connect Telegram')}`);
+  console.log(`  ${pc.dim('3.')} ${pc.cyan('claude')}                              ${pc.dim('Open a session')}`);
+  console.log();
+  console.log(`  Auth token: ${pc.dim(authToken.slice(0, 8) + '...' + authToken.slice(-4))}`);
+  console.log(`  Location: ${pc.dim(projectDir)}`);
+}
 
 // ── Shared helpers ────────────────────────────────────────────────────
 

@@ -8,7 +8,9 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { InstarConfig, SessionManagerConfig, JobSchedulerConfig, FeedbackConfig } from './types.js';
+import { mergeConfigWithSecrets } from './SecretMigrator.js';
+import os from 'node:os';
+import type { InstarConfig, SessionManagerConfig, JobSchedulerConfig, FeedbackConfig, AgentType } from './types.js';
 
 const DEFAULT_PORT = 4040;
 const DEFAULT_MAX_SESSIONS = 3;
@@ -102,6 +104,63 @@ export function detectProjectDir(startDir?: string): string {
   return process.cwd();
 }
 
+/**
+ * Get the path to the standalone agents directory.
+ */
+export function standaloneAgentsDir(): string {
+  return path.join(os.homedir(), '.instar', 'agents');
+}
+
+/**
+ * Resolve an agent directory from a name or path.
+ *
+ * Resolution order:
+ * 1. If nameOrPath is an absolute path under ~/.instar/agents/ or cwd, use it
+ * 2. If nameOrPath matches a standalone agent name, return ~/.instar/agents/<name>/
+ * 3. If no argument, use detectProjectDir() (existing behavior)
+ */
+export function resolveAgentDir(nameOrPath?: string): string {
+  if (!nameOrPath) {
+    return detectProjectDir();
+  }
+
+  // Absolute path — verify it's under a known location
+  if (path.isAbsolute(nameOrPath)) {
+    const resolved = fs.realpathSync(nameOrPath);
+    const agentsDir = standaloneAgentsDir();
+    if (resolved.startsWith(agentsDir) || resolved === process.cwd() || resolved.startsWith(process.cwd())) {
+      return resolved;
+    }
+    // Allow any existing directory with .instar in it
+    if (fs.existsSync(path.join(resolved, '.instar', 'config.json'))) {
+      return resolved;
+    }
+    throw new Error(`Path "${nameOrPath}" does not appear to be a valid agent directory.`);
+  }
+
+  // Check if it's a standalone agent name
+  const agentDir = path.join(standaloneAgentsDir(), nameOrPath);
+  if (fs.existsSync(path.join(agentDir, '.instar', 'config.json'))) {
+    return agentDir;
+  }
+
+  // Check global registry for the name (dynamic import to avoid circular deps)
+  try {
+    const registryPath = path.join(os.homedir(), '.instar', 'registry.json');
+    if (fs.existsSync(registryPath)) {
+      const data = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      const entries = Array.isArray(data.entries) ? data.entries : [];
+      const entry = entries.find((e: { name: string }) => e.name === nameOrPath);
+      if (entry?.path) return entry.path;
+    }
+  } catch { /* registry may not exist yet */ }
+
+  throw new Error(
+    `Agent "${nameOrPath}" not found. Check standalone agents at ${standaloneAgentsDir()}/ ` +
+    `or use an absolute path.`
+  );
+}
+
 export function loadConfig(projectDir?: string): InstarConfig {
   const resolvedProjectDir = projectDir || detectProjectDir();
   const configPath = path.join(resolvedProjectDir, '.instar', 'config.json');
@@ -118,6 +177,14 @@ export function loadConfig(projectDir?: string): InstarConfig {
         `Check that .instar/config.json contains valid JSON.`
       );
     }
+  }
+
+  // Merge encrypted secrets into config (replaces { "secret": true } placeholders)
+  // This is transparent — single-machine users without a SecretStore see no change.
+  try {
+    fileConfig = mergeConfigWithSecrets(fileConfig as Record<string, unknown>, stateDir) as Partial<InstarConfig>;
+  } catch {
+    // Non-fatal — config works without secrets (just missing the secret values)
   }
 
   const tmuxPath = detectTmuxPath();
@@ -196,6 +263,9 @@ export function loadConfig(projectDir?: string): InstarConfig {
       ...fileConfig.feedback,
     },
     tunnel: fileConfig.tunnel,
+    agentType: resolvedProjectDir.startsWith(standaloneAgentsDir())
+      ? 'standalone'
+      : (fileConfig as Record<string, unknown>).agentType as AgentType | undefined || 'project-bound',
   };
 }
 

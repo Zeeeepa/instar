@@ -43,8 +43,8 @@ describe('Job command (source verification)', () => {
     );
     // Priority defaults to medium
     expect(source).toContain("options.priority || 'medium'");
-    // Model defaults to sonnet
-    expect(source).toContain("options.model || 'sonnet'");
+    // Model defaults to opus
+    expect(source).toContain("options.model || 'opus'");
     // Execute type defaults to prompt
     expect(source).toContain("options.type || 'prompt'");
   });

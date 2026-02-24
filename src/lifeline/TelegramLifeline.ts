@@ -24,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import pc from 'picocolors';
 import { loadConfig, ensureStateDir } from '../core/Config.js';
-import { registerPort, unregisterPort, startHeartbeat } from '../core/PortRegistry.js';
+import { registerAgent, unregisterAgent, startHeartbeat } from '../core/AgentRegistry.js';
 // setup.ts uses @inquirer/prompts which requires Node 20.12+
 // Dynamic import to avoid breaking the lifeline on older Node versions
 // import { installAutoStart } from '../commands/setup.js';
@@ -169,15 +169,15 @@ export class TelegramLifeline {
       process.exit(0); // Clean exit — launchd will restart after ThrottleInterval, acting as a watchdog
     }
 
-    // Register in port registry (lifeline owns the port claim)
+    // Register in agent registry (lifeline entry — uses project dir + "-lifeline" suffix)
     try {
-      registerPort(
+      registerAgent(
+        this.projectConfig.projectDir + '-lifeline',
         `${this.projectConfig.projectName}-lifeline`,
         this.projectConfig.port + 1000, // Lifeline uses port + 1000 to avoid conflict
-        this.projectConfig.projectDir,
       );
     } catch { /* non-critical */ }
-    this.stopHeartbeat = startHeartbeat(`${this.projectConfig.projectName}-lifeline`);
+    this.stopHeartbeat = startHeartbeat(this.projectConfig.projectDir + '-lifeline');
 
     // Ensure Lifeline topic exists (auto-recreate if deleted)
     this.lifelineTopicId = await this.ensureLifelineTopic();
@@ -235,7 +235,7 @@ export class TelegramLifeline {
       if (this.pollTimeout) clearTimeout(this.pollTimeout);
       if (this.replayInterval) clearInterval(this.replayInterval);
       if (this.stopHeartbeat) this.stopHeartbeat();
-      unregisterPort(`${this.projectConfig.projectName}-lifeline`);
+      unregisterAgent(this.projectConfig.projectDir + '-lifeline');
       releaseLockFile(this.lockPath);
       await this.supervisor.stop();
       process.exit(0);

@@ -38,8 +38,13 @@ export function authMiddleware(authToken?: string) {
       return;
     }
 
-    // Internal endpoints are localhost-only (server binds 127.0.0.1) — skip auth
+    // Internal endpoints: enforce localhost at the network layer (P0-4 defense-in-depth)
     if (req.path.startsWith('/internal/')) {
+      const remote = req.socket.remoteAddress;
+      if (remote !== '127.0.0.1' && remote !== '::1' && remote !== '::ffff:127.0.0.1') {
+        res.status(403).json({ error: 'Internal routes are localhost-only' });
+        return;
+      }
       next();
       return;
     }

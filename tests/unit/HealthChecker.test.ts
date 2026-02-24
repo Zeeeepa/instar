@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import os from 'node:os';
 import { HealthChecker } from '../../src/monitoring/HealthChecker.js';
 import { createTempProject, createMockSessionManager } from '../helpers/setup.js';
 import type { TempProject, MockSessionManager } from '../helpers/setup.js';
@@ -42,11 +43,15 @@ describe('HealthChecker', () => {
   beforeEach(() => {
     project = createTempProject();
     mockSM = createMockSessionManager();
+    // Mock memory so tests don't depend on actual system memory usage
+    vi.spyOn(os, 'totalmem').mockReturnValue(16 * 1024 ** 3); // 16GB
+    vi.spyOn(os, 'freemem').mockReturnValue(8 * 1024 ** 3);   // 8GB free (50% used)
   });
 
   afterEach(() => {
     checker?.stopPeriodicChecks();
     project.cleanup();
+    vi.restoreAllMocks();
   });
 
   it('returns healthy when everything is ok', () => {

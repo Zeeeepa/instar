@@ -691,6 +691,67 @@ export interface EvolutionManagerConfig {
   maxActions?: number;
 }
 
+// ── Multi-Machine ───────────────────────────────────────────────────
+
+export interface MachineIdentity {
+  /** Unique machine ID: "m_" + 32 random hex chars (128 bits) */
+  machineId: string;
+  /** Base64-encoded Ed25519 public key (for signing commits, API requests) */
+  signingPublicKey: string;
+  /** Base64-encoded X25519 public key (for encryption, ECDH key agreement) */
+  encryptionPublicKey: string;
+  /** Human-friendly machine name (auto-detected or user-provided) */
+  name: string;
+  /** Platform identifier, e.g. "darwin-arm64", "linux-x64" */
+  platform: string;
+  /** ISO timestamp of identity creation */
+  createdAt: string;
+  /** What this machine can do */
+  capabilities: MachineCapability[];
+}
+
+export type MachineCapability = 'telegram' | 'jobs' | 'tunnel' | 'sessions';
+
+export type MachineStatus = 'active' | 'revoked' | 'pending';
+export type MachineRole = 'awake' | 'standby';
+
+export interface MachineRegistryEntry {
+  /** Human-friendly machine name */
+  name: string;
+  /** Current trust status */
+  status: MachineStatus;
+  /** Current operational role */
+  role: MachineRole;
+  /** ISO timestamp of when this machine was paired */
+  pairedAt: string;
+  /** ISO timestamp of last heartbeat or activity */
+  lastSeen: string;
+  /** ISO timestamp of revocation (if revoked) */
+  revokedAt?: string;
+  /** Machine ID that revoked this one */
+  revokedBy?: string;
+  /** Human-readable revocation reason */
+  revokeReason?: string;
+}
+
+export interface MachineRegistry {
+  /** Schema version for future migrations */
+  version: number;
+  /** Map of machineId -> registry entry */
+  machines: Record<string, MachineRegistryEntry>;
+}
+
+export interface MultiMachineConfig {
+  /** Whether multi-machine is enabled */
+  enabled: boolean;
+  /** Whether to auto-promote standby when awake goes silent */
+  autoFailover: boolean;
+  /** Minutes of silence before auto-failover (default: 15) */
+  failoverTimeoutMinutes: number;
+  /** Whether to require human confirmation before auto-failover */
+  autoFailoverConfirm: boolean;
+}
+
 // ── Server Configuration ────────────────────────────────────────────
 
 export interface InstarConfig {
@@ -738,6 +799,10 @@ export interface InstarConfig {
   safety?: SafetyConfig;
   /** Evolution system configuration */
   evolution?: EvolutionManagerConfig;
+  /** Multi-machine coordination config */
+  multiMachine?: MultiMachineConfig;
+  /** Agent type -- standalone lives at ~/.instar/agents/<name>/, project-bound lives in a project */
+  agentType?: AgentType;
 }
 
 /**
@@ -834,3 +899,169 @@ export interface MonitoringConfig {
 
 /** @deprecated Use InstarConfig instead */
 export type AgentKitConfig = InstarConfig;
+
+// ── Agent Registry ──────────────────────────────────────────────────
+
+export type AgentType = 'standalone' | 'project-bound';
+
+export type AgentStatus = 'running' | 'stopped' | 'stale';
+
+export interface AgentRegistryEntry {
+  /** Agent display name (from config.json projectName) — NOT unique, display label only */
+  name: string;
+  /** Agent type */
+  type: AgentType;
+  /** Canonical absolute path — the TRUE unique key */
+  path: string;
+  /** Allocated server port */
+  port: number;
+  /** Process ID of the server (0 if stopped) */
+  pid: number;
+  /** Current status */
+  status: AgentStatus;
+  /** When this agent was first registered */
+  createdAt: string;
+  /** Last heartbeat timestamp */
+  lastHeartbeat: string;
+  /** Instar version this agent was created with */
+  instarVersion?: string;
+}
+
+export interface AgentRegistry {
+  /** Schema version for future migrations */
+  version: 1;
+  entries: AgentRegistryEntry[];
+}
+
+// ── Backup System ───────────────────────────────────────────────────
+
+export interface BackupSnapshot {
+  /** Timestamp-based ID (ISO format, filesystem-safe) */
+  id: string;
+  /** When this snapshot was created */
+  createdAt: string;
+  /** What triggered this snapshot */
+  trigger: 'auto-session' | 'manual' | 'pre-update';
+  /** Files included in this snapshot */
+  files: string[];
+  /** Total size in bytes */
+  totalBytes: number;
+  /** SHA-256 integrity hash for manifest validation */
+  integrityHash?: string;
+}
+
+export interface BackupConfig {
+  /** Whether auto-backup before sessions is enabled (default: true) */
+  enabled: boolean;
+  /** Maximum snapshots to retain (default: 20) */
+  maxSnapshots: number;
+  /** Files to include in backups (relative to .instar/) */
+  includeFiles: string[];
+}
+
+// ── Git-Backed State ───────────────────────────────────────────────
+
+export interface GitStateConfig {
+  /** Whether git tracking is enabled */
+  enabled: boolean;
+  /** Remote URL for push/pull (optional) — only https://, git@, ssh:// allowed */
+  remote?: string;
+  /** Branch name (default: 'main') */
+  branch: string;
+  /** Auto-commit on state changes */
+  autoCommit: boolean;
+  /** Auto-push after commits (default: false) */
+  autoPush: boolean;
+  /** Debounce interval for auto-commits in seconds (default: 60) */
+  commitDebounceSeconds: number;
+  /** Last remote that was successfully pushed to (for first-push confirmation gate) */
+  lastPushedRemote?: string;
+}
+
+export interface GitLogEntry {
+  /** Commit hash (short) */
+  hash: string;
+  /** Commit message */
+  message: string;
+  /** Author name */
+  author: string;
+  /** Commit date */
+  date: string;
+}
+
+export interface GitStatus {
+  /** Whether git is initialized */
+  initialized: boolean;
+  /** Current branch name */
+  branch: string;
+  /** Number of staged files */
+  staged: number;
+  /** Number of modified but unstaged files */
+  modified: number;
+  /** Number of untracked files */
+  untracked: number;
+  /** Whether there are unpushed commits */
+  ahead: number;
+  /** Whether there are unpulled commits */
+  behind: number;
+  /** Remote URL if configured */
+  remote?: string;
+}
+
+// ── Memory Search ──────────────────────────────────────────────
+
+export interface MemorySearchConfig {
+  /** Whether memory search is enabled */
+  enabled: boolean;
+  /** Path to the SQLite database */
+  dbPath: string;
+  /** Source files/directories to index (relative to .instar/) */
+  sources: MemorySource[];
+  /** Chunk size in approximate tokens (default: 400) */
+  chunkSize: number;
+  /** Chunk overlap in approximate tokens (default: 80) */
+  chunkOverlap: number;
+  /** Whether to index session logs (can be large) */
+  indexSessionLogs: boolean;
+  /** Temporal decay factor (0-1, how much to weight recency; default: 0.693 for 30-day half-life) */
+  temporalDecayFactor: number;
+}
+
+export interface MemorySource {
+  /** Relative path to file or directory */
+  path: string;
+  /** Source type affects chunking strategy */
+  type: 'markdown' | 'json' | 'jsonl';
+  /** Whether this source is "evergreen" (no temporal decay) */
+  evergreen: boolean;
+}
+
+export interface MemorySearchResult {
+  /** The matched text chunk */
+  text: string;
+  /** Source file path */
+  source: string;
+  /** Byte offset within the source file */
+  offset: number;
+  /** Relevance score (higher = more relevant) */
+  score: number;
+  /** FTS5 highlight with match markers */
+  highlight?: string;
+  /** When this chunk's source was last modified */
+  sourceModifiedAt: string;
+}
+
+export interface MemoryIndexStats {
+  /** Total number of indexed files */
+  totalFiles: number;
+  /** Total number of chunks */
+  totalChunks: number;
+  /** Database file size in bytes */
+  dbSizeBytes: number;
+  /** When the index was last updated */
+  lastIndexedAt: string;
+  /** Files that have changed since last index */
+  staleFiles: number;
+  /** Whether vector search is available */
+  vectorSearchAvailable: boolean;
+}

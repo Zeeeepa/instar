@@ -28,7 +28,7 @@ import { UpdateChecker } from '../core/UpdateChecker.js';
 import { AutoUpdater } from '../core/AutoUpdater.js';
 import { AutoDispatcher } from '../core/AutoDispatcher.js';
 import { DispatchExecutor } from '../core/DispatchExecutor.js';
-import { registerPort, unregisterPort, startHeartbeat } from '../core/PortRegistry.js';
+import { registerAgent, unregisterAgent, startHeartbeat } from '../core/AgentRegistry.js';
 import { TelegraphService } from '../publishing/TelegraphService.js';
 import { PrivateViewer } from '../publishing/PrivateViewer.js';
 import { TunnelManager } from '../tunnel/TunnelManager.js';
@@ -40,6 +40,9 @@ import { AccountSwitcher } from '../monitoring/AccountSwitcher.js';
 import { QuotaNotifier } from '../monitoring/QuotaNotifier.js';
 import { classifySessionDeath } from '../monitoring/QuotaExhaustionDetector.js';
 import { SessionWatchdog } from '../monitoring/SessionWatchdog.js';
+import { MultiMachineCoordinator } from '../core/MultiMachineCoordinator.js';
+import { MachineIdentityManager } from '../core/MachineIdentity.js';
+import { GitSyncManager } from '../core/GitSync.js';
 import type { Message } from '../core/types.js';
 // setup.ts uses @inquirer/prompts which requires Node 20.12+
 // Dynamic import to avoid breaking the server on older Node versions
@@ -695,15 +698,15 @@ export async function startServer(options: StartOptions): Promise<void> {
       console.log(pc.yellow(`  Post-update migration check: ${err instanceof Error ? err.message : String(err)}`));
     }
 
-    // Register this instance in the port registry (multi-instance support)
+    // Register this agent in the global registry (multi-instance support)
     try {
-      registerPort(config.projectName, config.port, config.projectDir);
-      console.log(pc.green(`  Registered port ${config.port} for "${config.projectName}"`));
+      registerAgent(config.projectDir, config.projectName, config.port);
+      console.log(pc.green(`  Registered agent "${config.projectName}" on port ${config.port}`));
     } catch (err) {
       console.log(pc.red(`  Port conflict: ${err instanceof Error ? err.message : err}`));
       process.exit(1);
     }
-    const stopHeartbeat = startHeartbeat(config.projectName);
+    const stopHeartbeat = startHeartbeat(config.projectDir);
 
     // Warn if no auth token configured — server allows unauthenticated access
     if (!config.authToken) {
@@ -713,6 +716,60 @@ export async function startServer(options: StartOptions): Promise<void> {
     }
 
     const state = new StateManager(config.stateDir);
+
+    // Multi-machine coordinator — determines role (awake/standby) before other components start.
+    // If standby, StateManager becomes read-only and processing is gated.
+    const coordinator = new MultiMachineCoordinator(state, {
+      stateDir: config.stateDir,
+      multiMachine: config.multiMachine,
+    });
+    const machineRole = coordinator.start();
+    if (coordinator.enabled) {
+      console.log(pc.green(`  Multi-machine: ${pc.bold(machineRole)} (${coordinator.identity!.machineId.slice(0, 12)}...)`));
+      if (machineRole === 'standby') {
+        console.log(pc.yellow('  Standby mode — processing gated, writes disabled'));
+      }
+    }
+
+    // Read local signing key for machine route authentication
+    let localSigningKeyPem = '';
+    if (coordinator.enabled && coordinator.identity) {
+      try {
+        const keyPath = path.join(config.stateDir, 'machine', 'signing-private.pem');
+        if (fs.existsSync(keyPath)) {
+          localSigningKeyPem = fs.readFileSync(keyPath, 'utf-8');
+        }
+      } catch { /* Non-critical if key not found */ }
+    }
+
+    // Git sync for multi-machine (awake machines only — standby pulls via cron or manual)
+    let gitSync: GitSyncManager | undefined;
+    if (coordinator.enabled && coordinator.isAwake) {
+      try {
+        gitSync = new GitSyncManager({
+          projectDir: config.projectDir,
+          stateDir: config.stateDir,
+          identityManager: coordinator.managers.identityManager,
+          securityLog: coordinator.managers.securityLog,
+          machineId: coordinator.identity!.machineId,
+        });
+
+        // Configure commit signing if not already done
+        if (!gitSync.isSigningConfigured() && localSigningKeyPem) {
+          gitSync.configureCommitSigning();
+          console.log(pc.green('  Git commit signing configured'));
+        }
+
+        // Pull latest on startup
+        const syncResult = gitSync.sync();
+        if (syncResult.pulled) {
+          console.log(pc.green(`  Git sync: pulled ${syncResult.commitsPulled} commit(s)`));
+        }
+      } catch (err) {
+        console.log(pc.yellow(`  Git sync setup: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
+
     const sessionManager = new SessionManager(config.sessions, state);
     let relationships: RelationshipManager | undefined;
     if (config.relationships) {
@@ -758,7 +815,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     }
 
     let scheduler: JobScheduler | undefined;
-    if (config.scheduler.enabled) {
+    if (config.scheduler.enabled && coordinator.isAwake) {
       scheduler = new JobScheduler(config.scheduler, sessionManager, state, config.stateDir);
       if (quotaTracker) {
         scheduler.canRunJob = quotaTracker.canRunJob.bind(quotaTracker);
@@ -766,6 +823,8 @@ export async function startServer(options: StartOptions): Promise<void> {
       }
       scheduler.start();
       console.log(pc.green('  Scheduler started'));
+    } else if (config.scheduler.enabled && !coordinator.isAwake) {
+      console.log(pc.yellow('  Scheduler skipped (standby mode)'));
     }
 
     // Set up Telegram if configured
@@ -774,10 +833,12 @@ export async function startServer(options: StartOptions): Promise<void> {
     let telegram: TelegramAdapter | undefined;
     const telegramConfig = config.messaging.find(m => m.type === 'telegram' && m.enabled);
     const skipTelegram = options.telegram === false; // --no-telegram sets telegram: false
-    if (skipTelegram && telegramConfig) {
+    // Standby machines use send-only Telegram — they don't poll for messages
+    const isStandbyTelegram = !coordinator.isAwake && telegramConfig;
+    if ((skipTelegram || isStandbyTelegram) && telegramConfig) {
       // Send-only mode: no polling, but sendToTopic() works for session replies
       telegram = new TelegramAdapter(telegramConfig.config as any, config.stateDir);
-      console.log(pc.green('  Telegram send-only mode (lifeline owns polling)'));
+      console.log(pc.green(`  Telegram send-only mode (${isStandbyTelegram ? 'standby' : 'lifeline owns polling'})`));
 
       // Ensure topics exist even in send-only mode (createForumTopic is a simple API call)
       ensureAgentAttentionTopic(telegram, state).catch(err => {
@@ -787,7 +848,7 @@ export async function startServer(options: StartOptions): Promise<void> {
         console.error(`[server] Failed to ensure Agent Updates topic: ${err}`);
       });
     }
-    if (telegramConfig && !skipTelegram) {
+    if (telegramConfig && !skipTelegram && !isStandbyTelegram) {
       telegram = new TelegramAdapter(telegramConfig.config as any, config.stateDir);
       await telegram.start();
       console.log(pc.green('  Telegram connected'));
@@ -1061,7 +1122,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     });
     sleepWakeDetector.start();
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
     await server.start();
 
     // Start tunnel AFTER server is listening
@@ -1177,6 +1238,8 @@ export async function startServer(options: StartOptions): Promise<void> {
     // Graceful shutdown
     const shutdown = async () => {
       console.log('\nShutting down...');
+      gitSync?.stop();
+      coordinator.stop();
       memoryMonitor.stop();
       caffeinateManager.stop();
       sleepWakeDetector.stop();
@@ -1184,7 +1247,7 @@ export async function startServer(options: StartOptions): Promise<void> {
       autoDispatcher?.stop();
       if (tunnel) await tunnel.stop();
       stopHeartbeat();
-      unregisterPort(config.projectName);
+      unregisterAgent(config.projectDir);
       scheduler?.stop();
       if (telegram) await telegram.stop();
       sessionManager.stopMonitoring();

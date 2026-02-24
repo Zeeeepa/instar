@@ -31,7 +31,9 @@ import type { PrivateViewer } from '../publishing/PrivateViewer.js';
 import type { TunnelManager } from '../tunnel/TunnelManager.js';
 import type { EvolutionManager } from '../core/EvolutionManager.js';
 import type { SessionWatchdog } from '../monitoring/SessionWatchdog.js';
+import type { MultiMachineCoordinator } from '../core/MultiMachineCoordinator.js';
 import { createRoutes } from './routes.js';
+import { createMachineRoutes } from './machineRoutes.js';
 import { corsMiddleware, authMiddleware, requestTimeout, errorHandler } from './middleware.js';
 import { WebSocketManager } from './WebSocketManager.js';
 
@@ -62,6 +64,8 @@ export class AgentServer {
     tunnel?: TunnelManager;
     evolution?: EvolutionManager;
     watchdog?: SessionWatchdog;
+    coordinator?: MultiMachineCoordinator;
+    localSigningKeyPem?: string;
   }) {
     this.config = options.config;
     this.startTime = new Date();
@@ -129,6 +133,32 @@ export class AgentServer {
         // PIN correct — return the auth token
         res.json({ token: options.config.authToken });
       });
+    }
+
+    // Machine-to-machine routes — mounted BEFORE auth middleware because they use
+    // their own machineAuth scheme (Ed25519 signatures, not bearer tokens).
+    if (options.coordinator?.enabled) {
+      const coord = options.coordinator;
+      const machineRoutes = createMachineRoutes({
+        identityManager: coord.managers.identityManager,
+        heartbeatManager: coord.managers.heartbeatManager,
+        securityLog: coord.managers.securityLog,
+        authDeps: {
+          identityManager: coord.managers.identityManager,
+          nonceStore: coord.managers.nonceStore,
+          securityLog: coord.managers.securityLog,
+          localMachineId: coord.identity!.machineId,
+        },
+        localMachineId: coord.identity!.machineId,
+        localSigningKeyPem: options.localSigningKeyPem ?? '',
+        onDemote: () => coord.demoteToStandby('Remote heartbeat: another machine took over'),
+        onPromote: () => coord.promoteToAwake('Remote handoff: awake machine handed off to us'),
+        onHandoffRequest: async () => ({
+          ready: true,
+          state: { jobs: [], sessions: [] },
+        }),
+      });
+      this.app.use(machineRoutes);
     }
 
     this.app.use(authMiddleware(options.config.authToken));

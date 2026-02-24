@@ -29,9 +29,10 @@ import { showStatus } from './commands/status.js';
 import { addUser, listUsers } from './commands/user.js';
 import { addJob, listJobs } from './commands/job.js';
 import { listRelationships, importRelationships, exportRelationships } from './commands/relationship.js';
+import { listMachines, removeMachine, whoami, startPairing, joinMesh, leaveMesh, wakeup, doctor } from './commands/machine.js';
 import pc from 'picocolors';
 import { getInstarVersion } from './core/Config.js';
-import { listInstances } from './core/PortRegistry.js';
+import { listAgents } from './core/AgentRegistry.js';
 
 /**
  * Add or update Telegram configuration in the project config.
@@ -304,12 +305,11 @@ program
 
 program
   .command('init [project-name]')
-  .description('Initialize agent infrastructure (fresh project or existing)')
+  .description('Initialize agent infrastructure (fresh project, existing, or standalone)')
   .option('-d, --dir <path>', 'Project directory (default: current directory)')
   .option('--port <port>', 'Server port (default: 4040)', (v: string) => parseInt(v, 10))
+  .option('--standalone', 'Create a standalone agent at ~/.instar/agents/<name>/')
   .action((projectName, opts) => {
-    // If a project name is given, it's a fresh install
-    // Otherwise, augment the current directory
     return initProject({ ...opts, name: projectName });
   });
 
@@ -344,6 +344,143 @@ addCmd
   .description('Add Claude API quota tracking')
   .option('--state-file <path>', 'Path to quota state file (default: .instar/state/quota.json)')
   .action((opts) => addQuota(opts));
+
+// ── Backup ───────────────────────────────────────────────────────
+
+const backupCmd = program
+  .command('backup')
+  .description('Manage agent state backups');
+
+backupCmd
+  .command('create')
+  .description('Create a manual backup')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { createBackup } = await import('./commands/backup.js');
+    return createBackup(opts);
+  });
+
+backupCmd
+  .command('list')
+  .description('List available backup snapshots')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { listBackups } = await import('./commands/backup.js');
+    return listBackups(opts);
+  });
+
+backupCmd
+  .command('restore [id]')
+  .description('Restore from a backup snapshot (latest if no ID)')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (id, opts) => {
+    const { restoreBackup } = await import('./commands/backup.js');
+    return restoreBackup(id, opts);
+  });
+
+// ── Git State ────────────────────────────────────────────────────
+
+const gitCmd = program
+  .command('git')
+  .description('Git-backed state tracking (standalone agents only)');
+
+gitCmd
+  .command('init')
+  .description('Initialize git tracking in the agent state directory')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { gitInit } = await import('./commands/git.js');
+    return gitInit(opts);
+  });
+
+gitCmd
+  .command('status')
+  .description('Show git tracking status')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { gitStatus } = await import('./commands/git.js');
+    return gitStatus(opts);
+  });
+
+gitCmd
+  .command('push')
+  .description('Push state to remote')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--confirm', 'Confirm first push to remote')
+  .action(async (opts) => {
+    const { gitPush } = await import('./commands/git.js');
+    return gitPush(opts);
+  });
+
+gitCmd
+  .command('pull')
+  .description('Pull state from remote')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { gitPull } = await import('./commands/git.js');
+    return gitPull(opts);
+  });
+
+gitCmd
+  .command('log')
+  .description('Show recent commit history')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { gitLog } = await import('./commands/git.js');
+    return gitLog(opts);
+  });
+
+gitCmd
+  .command('remote <url>')
+  .description('Set remote URL for push/pull')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (url, opts) => {
+    const { gitRemote } = await import('./commands/git.js');
+    return gitRemote(url, opts);
+  });
+
+gitCmd
+  .command('commit [message]')
+  .description('Manual commit of state changes')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (message, opts) => {
+    const { gitCommit } = await import('./commands/git.js');
+    return gitCommit(message, opts);
+  });
+
+// ── Memory Search ────────────────────────────────────────────────
+
+const memoryCmd = program
+  .command('memory')
+  .description('Search and manage agent memory index (FTS5)');
+
+memoryCmd
+  .command('search <query>')
+  .description('Full-text search over agent memory files')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('-l, --limit <count>', 'Max results (default: 10)', (v: string) => parseInt(v, 10))
+  .action(async (query, opts) => {
+    const { memorySearch } = await import('./commands/memory.js');
+    return memorySearch(query, opts);
+  });
+
+memoryCmd
+  .command('reindex')
+  .description('Full rebuild of the SQLite memory index')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { memoryReindex } = await import('./commands/memory.js');
+    return memoryReindex(opts);
+  });
+
+memoryCmd
+  .command('status')
+  .description('Show memory index statistics')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { memoryStatus } = await import('./commands/memory.js');
+    return memoryStatus(opts);
+  });
 
 // ── Feedback ─────────────────────────────────────────────────────
 
@@ -402,26 +539,60 @@ const serverCmd = program
   .description('Manage the persistent agent server');
 
 serverCmd
-  .command('start')
-  .description('Start the agent server')
+  .command('start [name]')
+  .description('Start the agent server (optional: standalone agent name)')
   .option('--foreground', 'Run in foreground (default: background via tmux)')
   .option('--no-telegram', 'Skip Telegram polling (use when lifeline manages Telegram)')
   .option('-d, --dir <path>', 'Project directory')
-  .action(startServer);
+  .action(async (name, opts) => {
+    if (name && !opts.dir) {
+      // Resolve standalone agent name to directory
+      const { resolveAgentDir } = await import('./core/Config.js');
+      try {
+        opts.dir = resolveAgentDir(name);
+      } catch (err) {
+        console.log(pc.red(`Agent "${name}" not found: ${err instanceof Error ? err.message : err}`));
+        process.exit(1);
+      }
+    }
+    return startServer(opts);
+  });
 
 serverCmd
-  .command('stop')
-  .description('Stop the agent server')
+  .command('stop [name]')
+  .description('Stop the agent server (optional: standalone agent name)')
   .option('-d, --dir <path>', 'Project directory')
-  .action(stopServer);
+  .action(async (name, opts) => {
+    if (name && !opts.dir) {
+      const { resolveAgentDir } = await import('./core/Config.js');
+      try {
+        opts.dir = resolveAgentDir(name);
+      } catch (err) {
+        console.log(pc.red(`Agent "${name}" not found: ${err instanceof Error ? err.message : err}`));
+        process.exit(1);
+      }
+    }
+    return stopServer(opts);
+  });
 
 // ── Status ────────────────────────────────────────────────────────
 
 program
-  .command('status')
-  .description('Show agent infrastructure status')
+  .command('status [name]')
+  .description('Show agent infrastructure status (optional: standalone agent name)')
   .option('-d, --dir <path>', 'Project directory')
-  .action(showStatus);
+  .action(async (name, opts) => {
+    if (name && !opts.dir) {
+      const { resolveAgentDir } = await import('./core/Config.js');
+      try {
+        opts.dir = resolveAgentDir(name);
+      } catch (err) {
+        console.log(pc.red(`Agent "${name}" not found: ${err instanceof Error ? err.message : err}`));
+        process.exit(1);
+      }
+    }
+    return showStatus(opts);
+  });
 
 // ── User ──────────────────────────────────────────────────────────
 
@@ -575,29 +746,44 @@ lifelineCmd
     }
   });
 
-// ── Instances ─────────────────────────────────────────────────────
+// ── List (replaces Instances) ─────────────────────────────────────
+
+function showAgentList(): void {
+  const agents = listAgents();
+  if (agents.length === 0) {
+    console.log(pc.dim('No Instar agents registered.'));
+    console.log(pc.dim('Start a server with: instar server start'));
+    return;
+  }
+
+  console.log(pc.bold(`\n  Instar Agents (${agents.length})\n`));
+  for (const entry of agents) {
+    const age = Math.round((Date.now() - new Date(entry.createdAt).getTime()) / 60000);
+    const heartbeatAge = Math.round((Date.now() - new Date(entry.lastHeartbeat).getTime()) / 60000);
+    const statusIcon = entry.status === 'running' && heartbeatAge < 3
+      ? pc.green('●')
+      : entry.status === 'running'
+        ? pc.yellow('●')
+        : pc.dim('○');
+    const typeLabel = entry.type === 'standalone' ? pc.magenta(' [standalone]') : '';
+    console.log(`  ${statusIcon} ${pc.bold(entry.name)}${typeLabel}`);
+    console.log(`    Port: ${pc.cyan(String(entry.port))}  PID: ${entry.pid}  Status: ${entry.status}  Heartbeat: ${heartbeatAge}m ago`);
+    console.log(`    Dir:  ${pc.dim(entry.path)}`);
+    console.log();
+  }
+}
 
 program
-  .command('instances')
-  .description('List all Instar instances running on this machine')
-  .action(async () => {
-    const instances = listInstances();
-    if (instances.length === 0) {
-      console.log(pc.dim('No Instar instances registered.'));
-      console.log(pc.dim('Start a server with: instar server start'));
-      return;
-    }
+  .command('list')
+  .description('List all registered agents on this machine')
+  .action(showAgentList);
 
-    console.log(pc.bold(`\n  Instar Instances (${instances.length})\n`));
-    for (const entry of instances) {
-      const age = Math.round((Date.now() - new Date(entry.registeredAt).getTime()) / 60000);
-      const heartbeatAge = Math.round((Date.now() - new Date(entry.lastHeartbeat).getTime()) / 60000);
-      const alive = heartbeatAge < 3 ? pc.green('●') : pc.yellow('○');
-      console.log(`  ${alive} ${pc.bold(entry.projectName)}`);
-      console.log(`    Port: ${pc.cyan(String(entry.port))}  PID: ${entry.pid}  Up: ${age}m  Heartbeat: ${heartbeatAge}m ago`);
-      console.log(`    Dir:  ${pc.dim(entry.projectDir)}`);
-      console.log();
-    }
+// Hidden alias for backward compatibility
+program
+  .command('instances', { hidden: true })
+  .action(() => {
+    console.warn(pc.yellow('⚠ "instar instances" is deprecated. Use "instar list" instead.'));
+    showAgentList();
   });
 
 // ── Auto-Start ───────────────────────────────────────────────────
@@ -747,5 +933,58 @@ program
       process.exit(1);
     }
   });
+
+// ── Multi-Machine ─────────────────────────────────────────────────
+
+const machineCmd = program
+  .command('machines')
+  .description('List all paired machines and their roles')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(listMachines);
+
+machineCmd
+  .command('remove <name-or-id>')
+  .description('Revoke a machine from the mesh')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(removeMachine);
+
+program
+  .command('whoami')
+  .description("Show this machine's identity and role")
+  .option('-d, --dir <path>', 'Project directory')
+  .action(whoami);
+
+program
+  .command('pair')
+  .description('Generate a pairing code for a new machine')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--qr', 'Display pairing info as QR code')
+  .action(startPairing);
+
+program
+  .command('join <url>')
+  .description('Join an existing agent mesh (run on the new machine)')
+  .option('--code <code>', 'Pairing code from `instar pair`')
+  .option('--name <name>', 'Display name for this machine')
+  .action(joinMesh);
+
+program
+  .command('wakeup')
+  .description('Move the agent to this machine (transfer awake role)')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--force', 'Force wakeup without contacting the current awake machine')
+  .action(wakeup);
+
+program
+  .command('leave')
+  .description('Remove this machine from the mesh')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(leaveMesh);
+
+program
+  .command('doctor')
+  .description('Diagnose multi-machine health and connectivity')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(doctor);
 
 program.parse();

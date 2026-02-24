@@ -141,6 +141,235 @@ export function createRoutes(ctx: RouteContext): Router {
     res.json(base);
   });
 
+  // ── Agents ─────────────────────────────────────────────────────
+
+  router.get('/agents', async (_req, res) => {
+    try {
+      const { listAgents } = await import('../core/AgentRegistry.js');
+      const agents = listAgents();
+      res.json({ agents });
+    } catch {
+      res.status(500).json({ error: 'Failed to load agent registry' });
+    }
+  });
+
+  // ── Backups ────────────────────────────────────────────────────
+
+  router.get('/backups', async (_req, res) => {
+    try {
+      const { BackupManager } = await import('../core/BackupManager.js');
+      const manager = new BackupManager(ctx.config.stateDir);
+      res.json({ snapshots: manager.listSnapshots() });
+    } catch {
+      res.status(500).json({ error: 'Failed to list backups' });
+    }
+  });
+
+  router.post('/backups', async (_req, res) => {
+    try {
+      const { BackupManager } = await import('../core/BackupManager.js');
+      const manager = new BackupManager(ctx.config.stateDir);
+      const snapshot = manager.createSnapshot('manual');
+      res.json(snapshot);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Backup failed' });
+    }
+  });
+
+  router.post('/backups/:id/restore', async (req, res) => {
+    const { id } = req.params;
+    const SNAPSHOT_ID_RE = /^\d{4}-\d{2}-\d{2}T\d{6}Z(-\d+)?$/;
+
+    if (!SNAPSHOT_ID_RE.test(id)) {
+      res.status(400).json({ error: 'Invalid snapshot ID format' });
+      return;
+    }
+
+    // Path containment check (P0-2)
+    const backupsDir = path.resolve(ctx.config.stateDir, 'backups');
+    const resolvedPath = path.resolve(backupsDir, id);
+    if (!resolvedPath.startsWith(backupsDir + path.sep)) {
+      res.status(400).json({ error: 'Invalid snapshot ID' });
+      return;
+    }
+
+    // Session guard (defense-in-depth — also enforced in BackupManager)
+    const sessions = ctx.sessionManager.listRunningSessions();
+    if (sessions.length > 0) {
+      res.status(409).json({
+        error: 'Cannot restore while sessions are active',
+        activeSessions: sessions.length,
+      });
+      return;
+    }
+
+    try {
+      const { BackupManager } = await import('../core/BackupManager.js');
+      const manager = new BackupManager(
+        ctx.config.stateDir,
+        undefined,
+        () => ctx.sessionManager.listRunningSessions().length > 0,
+      );
+      manager.restoreSnapshot(id);
+      res.json({ restored: id });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Restore failed' });
+    }
+  });
+
+  // ── Git State ─────────────────────────────────────────────────
+
+  router.get('/git/status', async (_req, res) => {
+    try {
+      const { GitStateManager } = await import('../core/GitStateManager.js');
+      const gitConfig = (ctx.config as any).git || {};
+      const manager = new GitStateManager(ctx.config.stateDir, gitConfig);
+      res.json(manager.status());
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get git status' });
+    }
+  });
+
+  router.post('/git/commit', async (req, res) => {
+    try {
+      const { GitStateManager } = await import('../core/GitStateManager.js');
+      const gitConfig = (ctx.config as any).git || {};
+      const manager = new GitStateManager(ctx.config.stateDir, gitConfig);
+      const message = req.body?.message || '[instar] manual commit via API';
+      const files = req.body?.files;
+      manager.commit(message, files);
+      res.json({ committed: true, message });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Commit failed' });
+    }
+  });
+
+  router.post('/git/push', async (req, res) => {
+    try {
+      const { GitStateManager } = await import('../core/GitStateManager.js');
+      const gitConfig = (ctx.config as any).git || {};
+      const manager = new GitStateManager(ctx.config.stateDir, gitConfig);
+      const config = manager.getConfig();
+
+      // First-push confirmation gate
+      if (config.lastPushedRemote !== config.remote && !req.body?.force) {
+        res.status(428).json({
+          warning: `First push to ${config.remote}. This will send all committed agent state to the remote.`,
+          requiresConfirmation: true,
+        });
+        return;
+      }
+
+      const result = manager.push();
+      res.json({ pushed: true, firstPush: result.firstPush });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Push failed' });
+    }
+  });
+
+  router.post('/git/pull', async (_req, res) => {
+    try {
+      const { GitStateManager } = await import('../core/GitStateManager.js');
+      const gitConfig = (ctx.config as any).git || {};
+      const manager = new GitStateManager(ctx.config.stateDir, gitConfig);
+      manager.pull();
+      res.json({ pulled: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Pull failed' });
+    }
+  });
+
+  router.get('/git/log', async (req, res) => {
+    try {
+      const { GitStateManager } = await import('../core/GitStateManager.js');
+      const gitConfig = (ctx.config as any).git || {};
+      const manager = new GitStateManager(ctx.config.stateDir, gitConfig);
+      const limit = parseInt(req.query.limit as string, 10) || 20;
+      res.json({ entries: manager.log(limit) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get git log' });
+    }
+  });
+
+  // ── Memory Search ──────────────────────────────────────────────
+
+  router.get('/memory/search', async (req, res) => {
+    try {
+      const { MemoryIndex } = await import('../memory/MemoryIndex.js');
+      const memoryConfig = (ctx.config as any).memory || {};
+      const index = new MemoryIndex(ctx.config.stateDir, { ...memoryConfig, enabled: true });
+      await index.open();
+      try {
+        index.sync();
+        const query = String(req.query.q || '');
+        const limit = parseInt(req.query.limit as string, 10) || 10;
+        const source = req.query.source as string | undefined;
+        const startMs = Date.now();
+        const results = index.search(query, { limit, source });
+        res.json({
+          query,
+          results,
+          totalResults: results.length,
+          searchTimeMs: Date.now() - startMs,
+        });
+      } finally {
+        index.close();
+      }
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Search failed' });
+    }
+  });
+
+  router.get('/memory/stats', async (_req, res) => {
+    try {
+      const { MemoryIndex } = await import('../memory/MemoryIndex.js');
+      const memoryConfig = (ctx.config as any).memory || {};
+      const index = new MemoryIndex(ctx.config.stateDir, { ...memoryConfig, enabled: true });
+      await index.open();
+      try {
+        res.json(index.stats());
+      } finally {
+        index.close();
+      }
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to get stats' });
+    }
+  });
+
+  router.post('/memory/reindex', async (_req, res) => {
+    try {
+      const { MemoryIndex } = await import('../memory/MemoryIndex.js');
+      const memoryConfig = (ctx.config as any).memory || {};
+      const index = new MemoryIndex(ctx.config.stateDir, { ...memoryConfig, enabled: true });
+      await index.open();
+      try {
+        const result = index.reindex();
+        res.json({ reindexed: true, ...result });
+      } finally {
+        index.close();
+      }
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Reindex failed' });
+    }
+  });
+
+  router.post('/memory/sync', async (_req, res) => {
+    try {
+      const { MemoryIndex } = await import('../memory/MemoryIndex.js');
+      const memoryConfig = (ctx.config as any).memory || {};
+      const index = new MemoryIndex(ctx.config.stateDir, { ...memoryConfig, enabled: true });
+      await index.open();
+      try {
+        const result = index.sync();
+        res.json({ synced: true, ...result });
+      } finally {
+        index.close();
+      }
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Sync failed' });
+    }
+  });
+
   // ── Status ──────────────────────────────────────────────────────
 
   router.get('/status', (_req, res) => {
