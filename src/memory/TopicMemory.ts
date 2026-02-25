@@ -94,6 +94,14 @@ export class TopicMemory {
   }
 
   /**
+   * Check if the database is open and ready for queries.
+   * Use this to verify TopicMemory is functional before relying on it.
+   */
+  isReady(): boolean {
+    return this.db !== null;
+  }
+
+  /**
    * Open the database and create schema if needed.
    */
   async open(): Promise<void> {
@@ -566,7 +574,17 @@ export class TopicMemory {
    * This is the primary interface for loading topic context into a session.
    */
   formatContextForSession(topicId: number, recentLimit: number = 30): string {
+    // Return empty string when db is not open — callers use this as a falsy check
+    // to trigger JSONL fallback. A non-empty string from a broken db would
+    // prevent the fallback and leave the session without conversation history.
+    if (!this.db) return '';
+
     const ctx = this.getTopicContext(topicId, recentLimit);
+
+    // Also return empty if the db is open but has no data for this topic —
+    // the JSONL might have messages that weren't imported yet.
+    if (ctx.recentMessages.length === 0 && !ctx.summary) return '';
+
     const lines: string[] = [];
 
     lines.push(`--- TOPIC CONTEXT (${ctx.totalMessages} total messages) ---`);

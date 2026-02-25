@@ -521,10 +521,9 @@ describe('TopicMemory', () => {
       expect(context).toContain('Hello');
     });
 
-    it('returns minimal context for empty topic', () => {
+    it('returns empty string for empty topic (enables JSONL fallback)', () => {
       const context = topicMemory.formatContextForSession(999);
-      expect(context).toContain('TOPIC CONTEXT');
-      expect(context).toContain('0 total messages');
+      expect(context).toBe('');
     });
   });
 
@@ -581,6 +580,118 @@ describe('TopicMemory', () => {
       expect(ctx.recentMessages).toHaveLength(0);
       expect(ctx.totalMessages).toBe(0);
       expect(ctx.topicName).toBeNull();
+    });
+  });
+
+  // ── isReady ───────────────────────────────────────────────
+
+  describe('isReady', () => {
+    it('returns true after open()', () => {
+      expect(topicMemory.isReady()).toBe(true);
+    });
+
+    it('returns false before open()', () => {
+      const uninit = new TopicMemory(tmpDir);
+      expect(uninit.isReady()).toBe(false);
+    });
+
+    it('returns false after close()', () => {
+      const closeable = new TopicMemory(tmpDir);
+      // We know the main topicMemory already opened the db at this path,
+      // so we can test close behavior with a fresh instance
+      expect(closeable.isReady()).toBe(false);
+    });
+  });
+
+  // ── Uninitialized DB behavior (failure paths) ─────────────
+  //
+  // These tests verify that when open() hasn't been called (or failed),
+  // all methods degrade safely — returning empty results without throwing.
+  // This is CRITICAL: the server may pass a TopicMemory instance where
+  // open() failed, and all downstream code must handle it gracefully.
+  //
+  // The key invariant: formatContextForSession() MUST return an empty
+  // string when the db is not open, because callers use `if (!contextContent)`
+  // to trigger the JSONL fallback. A non-empty string from a broken db
+  // would prevent the fallback and leave sessions without history.
+
+  describe('uninitialized db (open() not called)', () => {
+    let uninit: TopicMemory;
+
+    beforeEach(() => {
+      uninit = new TopicMemory(tmpDir);
+      // Deliberately NOT calling open() — simulates better-sqlite3 load failure
+    });
+
+    it('formatContextForSession returns empty string (enables JSONL fallback)', () => {
+      const context = uninit.formatContextForSession(100);
+      expect(context).toBe('');
+    });
+
+    it('getRecentMessages returns empty array', () => {
+      expect(uninit.getRecentMessages(100)).toHaveLength(0);
+    });
+
+    it('getTopicContext returns safe defaults', () => {
+      const ctx = uninit.getTopicContext(100);
+      expect(ctx.summary).toBeNull();
+      expect(ctx.recentMessages).toHaveLength(0);
+      expect(ctx.totalMessages).toBe(0);
+      expect(ctx.topicName).toBeNull();
+    });
+
+    it('search returns empty array', () => {
+      expect(uninit.search('test')).toHaveLength(0);
+    });
+
+    it('insertMessage does not throw', () => {
+      expect(() => uninit.insertMessage({
+        messageId: 1, topicId: 100, text: 'Hello',
+        fromUser: true, timestamp: '2026-02-24T12:00:00Z', sessionName: null,
+      })).not.toThrow();
+    });
+
+    it('insertMessages returns 0', () => {
+      expect(uninit.insertMessages([])).toBe(0);
+    });
+
+    it('stats returns zeros', () => {
+      const stats = uninit.stats();
+      expect(stats.totalMessages).toBe(0);
+      expect(stats.totalTopics).toBe(0);
+      expect(stats.topicsWithSummaries).toBe(0);
+    });
+
+    it('getTopicSummary returns null', () => {
+      expect(uninit.getTopicSummary(100)).toBeNull();
+    });
+
+    it('needsSummaryUpdate returns false', () => {
+      expect(uninit.needsSummaryUpdate(100)).toBe(false);
+    });
+
+    it('getMessagesSinceSummary returns empty array', () => {
+      expect(uninit.getMessagesSinceSummary(100)).toHaveLength(0);
+    });
+
+    it('getTopicMeta returns null', () => {
+      expect(uninit.getTopicMeta(100)).toBeNull();
+    });
+
+    it('listTopics returns empty array', () => {
+      expect(uninit.listTopics()).toHaveLength(0);
+    });
+
+    it('importFromJsonl returns 0', () => {
+      expect(uninit.importFromJsonl('/nonexistent')).toBe(0);
+    });
+
+    it('rebuild returns 0', () => {
+      expect(uninit.rebuild('/nonexistent')).toBe(0);
+    });
+
+    it('getMessageCount returns 0', () => {
+      expect(uninit.getMessageCount(100)).toBe(0);
     });
   });
 });

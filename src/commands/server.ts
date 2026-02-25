@@ -110,7 +110,7 @@ async function spawnSessionForTopic(
   let contextContent: string = '';
 
   // Prefer TopicMemory (SQLite-backed, with summaries) over raw JSONL scan
-  if (topicMemory) {
+  if (topicMemory?.isReady()) {
     try {
       contextContent = topicMemory.formatContextForSession(topicId, 30);
     } catch (err) {
@@ -971,6 +971,10 @@ export async function startServer(options: StartOptions): Promise<void> {
         };
       } catch (err) {
         console.error(`  TopicMemory init failed (non-critical): ${err instanceof Error ? err.message : err}`);
+        // Reset to undefined so the JSONL fallback is used for session context
+        // and API routes return clear 503 "not initialized" errors instead of
+        // silently returning empty data from a broken instance.
+        topicMemory = undefined;
       }
 
       // Wire up topic → session routing and session management callbacks

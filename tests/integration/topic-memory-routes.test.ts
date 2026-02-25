@@ -331,3 +331,125 @@ describe('TopicMemory API routes', () => {
     });
   });
 });
+
+// ── TopicMemory NOT initialized (server has no TopicMemory) ──────
+//
+// Tests the EXACT scenario that caused the DeepSignal bug:
+// TopicMemory init fails → ctx.topicMemory is null → all topic
+// routes return 503. This ensures the failure is clear and
+// the server doesn't silently return empty data.
+
+describe('TopicMemory API routes — not initialized', () => {
+  let project: TempProject;
+  let mockSM: MockSessionManager;
+  let server: AgentServer;
+  let app: ReturnType<AgentServer['getApp']>;
+  const AUTH_TOKEN = 'test-auth-no-topic-memory';
+
+  beforeAll(async () => {
+    project = createTempProject();
+    mockSM = createMockSessionManager();
+
+    const config: InstarConfig = {
+      projectName: 'test-no-topic-memory',
+      projectDir: project.dir,
+      stateDir: project.stateDir,
+      port: 0,
+      authToken: AUTH_TOKEN,
+      requestTimeoutMs: 5000,
+      version: '0.9.1',
+      sessions: {
+        claudePath: '/usr/bin/echo',
+        maxSessions: 3,
+        defaultMaxDurationMinutes: 30,
+        protectedSessions: [],
+        monitorIntervalMs: 5000,
+      },
+      scheduler: { enabled: false, jobsFile: '', maxParallelJobs: 1 },
+      messaging: [],
+      monitoring: {},
+      updates: {},
+    };
+
+    // Deliberately NOT passing topicMemory — simulates init failure
+    server = new AgentServer({
+      config,
+      sessionManager: mockSM as any,
+      state: project.state,
+      // topicMemory: undefined — not passed
+    });
+
+    await server.start();
+    app = server.getApp();
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    project.cleanup();
+  });
+
+  it('GET /topic/search returns 503', async () => {
+    const res = await request(app)
+      .get('/topic/search?q=test')
+      .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+      .expect(503);
+
+    expect(res.body.error).toContain('not initialized');
+  });
+
+  it('GET /topic/context/:topicId returns 503', async () => {
+    const res = await request(app)
+      .get('/topic/context/100')
+      .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+      .expect(503);
+
+    expect(res.body.error).toContain('not initialized');
+  });
+
+  it('GET /topic/list returns 503', async () => {
+    const res = await request(app)
+      .get('/topic/list')
+      .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+      .expect(503);
+
+    expect(res.body.error).toContain('not initialized');
+  });
+
+  it('GET /topic/stats returns 503', async () => {
+    const res = await request(app)
+      .get('/topic/stats')
+      .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+      .expect(503);
+
+    expect(res.body.error).toContain('not initialized');
+  });
+
+  it('POST /topic/summarize returns 503', async () => {
+    const res = await request(app)
+      .post('/topic/summarize')
+      .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+      .send({ topicId: 100 })
+      .expect(503);
+
+    expect(res.body.error).toContain('not initialized');
+  });
+
+  it('POST /topic/summary returns 503', async () => {
+    const res = await request(app)
+      .post('/topic/summary')
+      .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+      .send({ topicId: 100, summary: 'test', messageCount: 1, lastMessageId: 1 })
+      .expect(503);
+
+    expect(res.body.error).toContain('not initialized');
+  });
+
+  it('POST /topic/rebuild returns 503', async () => {
+    const res = await request(app)
+      .post('/topic/rebuild')
+      .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+      .expect(503);
+
+    expect(res.body.error).toContain('not initialized');
+  });
+});
