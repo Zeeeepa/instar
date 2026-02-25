@@ -749,6 +749,8 @@ Dawn is the existence proof. Everything described in this spec was built first f
 ## Remaining Open Questions
 
 > 6 of the original 10 open questions were resolved as decisions (see [Decisions](#decisions)). 4 remain open, plus 5 new questions surfaced by the review.
+>
+> **Resolution strategy**: Questions 1–4 will resolve with field data from real agent deployments. Questions 5–9 will resolve when enterprise customers appear and impose requirements. None are blocking current development — they represent the natural frontier of a system that is built and working but not yet battle-tested at organizational scale.
 
 ### From Original Spec (Unresolved)
 
