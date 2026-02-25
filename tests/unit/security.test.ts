@@ -143,7 +143,9 @@ describe('Security', () => {
   describe('No execSync anywhere in source', () => {
     // GitStateManager.ts is exempted — it wraps execSync in a private git()
     // helper with proper argument escaping for shell-safe git command execution.
-    const EXEC_SYNC_EXEMPTIONS = new Set(['core/GitStateManager.ts']);
+    // GitStateManager.ts: wraps execSync in a private git() helper with proper argument escaping
+    // AgentConnector.ts: uses execSync for git clone and git --version with validated/constant args
+    const EXEC_SYNC_EXEMPTIONS = new Set(['core/GitStateManager.ts', 'core/AgentConnector.ts']);
 
     it('zero execSync calls across all source files (except exempted)', () => {
       const srcDir = path.join(process.cwd(), 'src');

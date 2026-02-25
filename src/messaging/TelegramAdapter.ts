@@ -169,6 +169,10 @@ export class TelegramAdapter implements MessagingAdapter {
   public onIsSessionAlive: ((tmuxSession: string) => boolean) | null = null;
   public onIsSessionActive: ((tmuxSession: string) => Promise<boolean>) | null = null;
 
+  // Message log callback — fires on every message logged (inbound and outbound).
+  // Used by TopicMemory to dual-write to SQLite for search and summarization.
+  public onMessageLogged: ((entry: { messageId: number; topicId: number | null; text: string; fromUser: boolean; timestamp: string; sessionName: string | null }) => void) | null = null;
+
   // Attention queue callbacks
   public onAttentionStatusChange: ((itemId: string, status: string) => Promise<void>) | null = null;
 
@@ -177,6 +181,20 @@ export class TelegramAdapter implements MessagingAdapter {
   public onQuotaStatusRequest: ((replyTopicId: number) => Promise<void>) | null = null;
   public onLoginRequest: ((email: string | null, replyTopicId: number) => Promise<void>) | null = null;
   public onClassifySessionDeath: ((sessionName: string) => Promise<{ cause: string; detail: string } | null>) | null = null;
+
+  // Unknown user handling callbacks (Multi-User Setup Wizard Phase 4.5)
+  // Returns the registration policy and optional contact hint for the gated message
+  public onGetRegistrationPolicy: (() => { policy: string; contactHint?: string; agentName?: string }) | null = null;
+  // Called when an admin-only join request is created (notify admin via lifeline/admin topic)
+  public onNotifyAdminJoinRequest: ((request: { name: string; username?: string; telegramUserId: number }) => Promise<void>) | null = null;
+  // Called to validate an invite code for invite-only policy
+  public onValidateInviteCode: ((code: string, telegramUserId: number) => Promise<{ valid: boolean; error?: string }>) | null = null;
+  // Called to start mini-onboarding for open policy
+  public onStartMiniOnboarding: ((telegramUserId: number, firstName: string, username?: string) => Promise<void>) | null = null;
+
+  // Rate limiting for unknown user responses (prevent spam)
+  private unknownUserRateLimit: Map<number, number> = new Map(); // telegramUserId -> last response timestamp
+  private static readonly UNKNOWN_USER_COOLDOWN_MS = 60_000; // 1 minute between responses to same unknown user
 
   constructor(config: TelegramConfig, stateDir: string) {
     this.config = config;
@@ -434,6 +452,142 @@ export class TelegramAdapter implements MessagingAdapter {
     const authorized = this.config.authorizedUserIds;
     if (!authorized || authorized.length === 0) return true;
     return authorized.includes(userId);
+  }
+
+  /**
+   * Handle a message from an unknown/unauthorized Telegram user.
+   * Checks the registration policy and responds appropriately:
+   * - admin-only: Gated message + notify admin
+   * - invite-only: Ask for invite code
+   * - open: Start mini-onboarding (rate limited)
+   *
+   * Rate-limited to prevent spam from the same unknown user.
+   */
+  private async handleUnknownUser(
+    telegramUserId: number,
+    firstName: string,
+    username: string | undefined,
+    messageText: string | undefined,
+  ): Promise<void> {
+    // Rate limit: don't spam responses to the same unknown user
+    const lastResponse = this.unknownUserRateLimit.get(telegramUserId);
+    if (lastResponse && (Date.now() - lastResponse) < TelegramAdapter.UNKNOWN_USER_COOLDOWN_MS) {
+      console.log(`[telegram] Rate-limited response to unknown user ${telegramUserId} (${username ?? firstName})`);
+      return;
+    }
+
+    // Get registration policy from callback
+    const policyInfo = this.onGetRegistrationPolicy?.();
+    if (!policyInfo) {
+      // No policy callback wired — fall back to silent ignore (legacy behavior)
+      console.log(`[telegram] Ignoring message from unauthorized user ${telegramUserId} (${username ?? firstName}) — no registration policy configured`);
+      return;
+    }
+
+    const { policy, contactHint, agentName } = policyInfo;
+    const displayName = agentName || 'This agent';
+
+    // Mark that we responded to this user
+    this.unknownUserRateLimit.set(telegramUserId, Date.now());
+
+    // Clean up old rate limit entries periodically (keep map from growing unbounded)
+    if (this.unknownUserRateLimit.size > 100) {
+      const cutoff = Date.now() - TelegramAdapter.UNKNOWN_USER_COOLDOWN_MS * 10;
+      for (const [uid, ts] of this.unknownUserRateLimit) {
+        if (ts < cutoff) this.unknownUserRateLimit.delete(uid);
+      }
+    }
+
+    console.log(`[telegram] Unknown user ${telegramUserId} (${username ?? firstName}) — policy: ${policy}`);
+
+    try {
+      switch (policy) {
+        case 'admin-only': {
+          // Send gated message to the user
+          let gatedMessage = `Hi ${firstName}! ${displayName} is not open for public registration. Access is managed by an administrator.`;
+          if (contactHint) {
+            gatedMessage += `\n\n${contactHint}`;
+          }
+          gatedMessage += `\n\nYour request has been noted and forwarded to the admin.`;
+
+          // Reply in the group's General topic (since unknown users don't have their own topic)
+          await this.sendToTopic(GENERAL_TOPIC_ID, gatedMessage).catch(() => {});
+
+          // Notify admin via callback
+          if (this.onNotifyAdminJoinRequest) {
+            await this.onNotifyAdminJoinRequest({
+              name: firstName,
+              username,
+              telegramUserId,
+            }).catch(err => {
+              console.error(`[telegram] Failed to notify admin of join request: ${err}`);
+            });
+          }
+          break;
+        }
+
+        case 'invite-only': {
+          // Check if the message contains an invite code
+          const trimmedText = messageText?.trim();
+          if (trimmedText && this.onValidateInviteCode) {
+            const result = await this.onValidateInviteCode(trimmedText, telegramUserId);
+            if (result.valid) {
+              await this.sendToTopic(GENERAL_TOPIC_ID,
+                `Welcome, ${firstName}! Your invite code has been accepted. Setting up your account...`,
+              ).catch(() => {});
+              // Trigger mini-onboarding after successful invite validation
+              if (this.onStartMiniOnboarding) {
+                await this.onStartMiniOnboarding(telegramUserId, firstName, username).catch(err => {
+                  console.error(`[telegram] Failed to start onboarding after invite: ${err}`);
+                });
+              }
+              return;
+            } else if (result.error) {
+              await this.sendToTopic(GENERAL_TOPIC_ID, result.error).catch(() => {});
+              return;
+            }
+          }
+
+          // Default invite-only prompt
+          let inviteMessage = `Hi ${firstName}! ${displayName} requires an invite code to join. Please reply with your invite code.`;
+          if (contactHint) {
+            inviteMessage += `\n\n${contactHint}`;
+          }
+          await this.sendToTopic(GENERAL_TOPIC_ID, inviteMessage).catch(() => {});
+          break;
+        }
+
+        case 'open': {
+          // Start mini-onboarding via callback
+          if (this.onStartMiniOnboarding) {
+            await this.sendToTopic(GENERAL_TOPIC_ID,
+              `Hi ${firstName}! Welcome! Setting up your account...`,
+            ).catch(() => {});
+            await this.onStartMiniOnboarding(telegramUserId, firstName, username).catch(err => {
+              console.error(`[telegram] Failed to start mini-onboarding: ${err}`);
+              this.sendToTopic(GENERAL_TOPIC_ID,
+                `Sorry ${firstName}, there was an issue setting up your account. Please try again later.`,
+              ).catch(() => {});
+            });
+          } else {
+            await this.sendToTopic(GENERAL_TOPIC_ID,
+              `Hi ${firstName}! Registration is currently being set up. Please try again later.`,
+            ).catch(() => {});
+          }
+          break;
+        }
+
+        default: {
+          // Unknown policy — fall back to gated message
+          console.warn(`[telegram] Unknown registration policy: ${policy}`);
+          await this.sendToTopic(GENERAL_TOPIC_ID,
+            `Hi ${firstName}! ${displayName} is not currently accepting new users.`,
+          ).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error(`[telegram] Error handling unknown user ${telegramUserId}: ${err}`);
+    }
   }
 
   // ── Topic-Session Registry ─────────────────────────────────
@@ -1021,6 +1175,13 @@ export class TelegramAdapter implements MessagingAdapter {
     } catch (err) {
       console.error(`[telegram] Failed to append to message log: ${err}`);
     }
+
+    // Notify subscribers (TopicMemory for SQLite dual-write)
+    if (this.onMessageLogged) {
+      try {
+        this.onMessageLogged(entry);
+      } catch { /* non-critical — don't break logging pipeline */ }
+    }
   }
 
   /** Keep only the last 75,000 lines when log exceeds 100,000 lines.
@@ -1364,9 +1525,9 @@ export class TelegramAdapter implements MessagingAdapter {
     const msg = update.message;
     if (!msg) return;
 
-    // Auth gating — reject messages from unauthorized users
+    // Auth gating — handle messages from unauthorized/unknown users
     if (!this.isAuthorized(msg.from.id)) {
-      console.log(`[telegram] Ignoring message from unauthorized user ${msg.from.id} (${msg.from.username ?? msg.from.first_name})`);
+      await this.handleUnknownUser(msg.from.id, msg.from.first_name, msg.from.username, msg.text);
       return;
     }
 

@@ -165,6 +165,16 @@ export interface UserProfile {
   preferences: UserPreferences;
   /** Interaction history summary */
   context?: string;
+  /** Consent record (GDPR compliance) */
+  consent?: ConsentRecord;
+  /** What data categories are stored for this user */
+  dataCollected?: DataCollectedManifest;
+  /** Whether this user's Telegram topic is pending creation */
+  pendingTelegramTopic?: boolean;
+  /** ISO timestamp of when the user was created */
+  createdAt?: string;
+  /** Telegram numeric user ID (canonical identifier for identity binding) */
+  telegramUserId?: number;
 }
 
 export interface UserChannel {
@@ -752,6 +762,103 @@ export interface MultiMachineConfig {
   autoFailoverConfirm: boolean;
 }
 
+// ── Agent Autonomy ──────────────────────────────────────────────────
+
+export type AgentAutonomyLevel = 'supervised' | 'collaborative' | 'autonomous';
+
+export type UserRegistrationPolicy = 'open' | 'invite-only' | 'admin-only';
+
+export interface AgentAutonomyCapabilities {
+  /** Agent adds context to admin join-request notifications */
+  assessJoinRequests: boolean;
+  /** Agent suggests resolution before escalating conflicts */
+  proposeConflictResolution: boolean;
+  /** Agent surfaces usage-based config recommendations */
+  recommendConfigChanges: boolean;
+  /** Agent enables jobs it previously ran on another machine */
+  autoEnableVerifiedJobs: boolean;
+  /** Agent notices and reports degraded states proactively */
+  proactiveStatusAlerts: boolean;
+  /** Agent approves joins for pre-announced users (autonomous only) */
+  autoApproveKnownContacts: boolean;
+}
+
+export interface AgentAutonomyConfig {
+  /** How much the agent handles on its own */
+  level: AgentAutonomyLevel;
+  /** Fine-grained capability toggles */
+  capabilities: AgentAutonomyCapabilities;
+}
+
+export interface RecoveryKeyConfig {
+  /** bcrypt hash of the recovery key */
+  keyHash: string;
+  /** ISO timestamp of creation */
+  createdAt: string;
+  /** ISO timestamp of last use, or null */
+  lastUsedAt: string | null;
+  /** Number of times the recovery key has been used */
+  usageCount: number;
+}
+
+export interface ConsentRecord {
+  /** Whether consent was given */
+  consentGiven: boolean;
+  /** ISO timestamp of consent */
+  consentDate: string;
+  /** Version of the privacy notice consented to */
+  consentNoticeVersion?: string;
+}
+
+export interface DataCollectedManifest {
+  name: boolean;
+  telegramId: boolean;
+  communicationPreferences: boolean;
+  conversationHistory: boolean;
+  memoryEntries: boolean;
+  machineIdentities: boolean;
+}
+
+export interface VerificationCode {
+  /** The hashed code */
+  codeHash: string;
+  /** ISO timestamp of creation */
+  createdAt: string;
+  /** Minutes until expiry */
+  expiryMinutes: number;
+  /** Max attempts before lockout */
+  maxAttempts: number;
+  /** Current attempt count */
+  attempts: number;
+  /** Whether this code has been used */
+  used: boolean;
+  /** Target user ID (for Telegram push) or machine ID (for pairing) */
+  targetId: string;
+  /** Code type */
+  type: 'telegram-push' | 'pairing-code' | 'recovery-key';
+}
+
+export interface JoinRequest {
+  /** Unique request ID */
+  requestId: string;
+  /** Display name from the requester */
+  name: string;
+  /** Telegram user ID of the requester */
+  telegramUserId: number;
+  /** Agent's contextual assessment (from conversation history) */
+  agentAssessment: string | null;
+  /** Approval code for this request */
+  approvalCode: string;
+  /** ISO timestamp */
+  requestedAt: string;
+  /** Status */
+  status: 'pending' | 'approved' | 'denied' | 'expired';
+  /** Who approved/denied (user ID) */
+  resolvedBy?: string;
+  /** ISO timestamp of resolution */
+  resolvedAt?: string;
+}
+
 // ── Server Configuration ────────────────────────────────────────────
 
 export interface InstarConfig {
@@ -803,6 +910,14 @@ export interface InstarConfig {
   multiMachine?: MultiMachineConfig;
   /** Agent type -- standalone lives at ~/.instar/agents/<name>/, project-bound lives in a project */
   agentType?: AgentType;
+  /** User registration policy */
+  userRegistrationPolicy?: UserRegistrationPolicy;
+  /** Agent autonomy configuration */
+  agentAutonomy?: AgentAutonomyConfig;
+  /** Recovery key for admin self-recovery */
+  recoveryKey?: RecoveryKeyConfig;
+  /** Registration contact hint for rejected users */
+  registrationContactHint?: string;
 }
 
 /**

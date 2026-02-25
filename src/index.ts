@@ -69,6 +69,21 @@ export type { Chunk } from './memory/Chunker.js';
 
 // Users
 export { UserManager } from './users/UserManager.js';
+export {
+  generateVerificationCode,
+  generateConnectCode,
+  hashCode,
+  generateRecoveryKey,
+  hashRecoveryKey,
+  buildConsentDisclosure,
+  buildCondensedConsentDisclosure,
+  createConsentRecord,
+  createDataManifest,
+  VerificationManager,
+  JoinRequestManager,
+  buildUserProfile,
+  getDefaultAutonomyConfig,
+} from './users/UserOnboarding.js';
 
 // Scheduler
 export { JobScheduler } from './scheduler/JobScheduler.js';
@@ -168,6 +183,15 @@ export type {
   MachineRole,
   MachineCapability,
   MultiMachineConfig,
+  AgentAutonomyLevel,
+  UserRegistrationPolicy,
+  AgentAutonomyCapabilities,
+  AgentAutonomyConfig,
+  RecoveryKeyConfig,
+  ConsentRecord,
+  DataCollectedManifest,
+  VerificationCode,
+  JoinRequest,
   AgentType,
   AgentStatus,
   AgentRegistryEntry,

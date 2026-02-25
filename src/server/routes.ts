@@ -16,6 +16,8 @@ import type { StateManager } from '../core/StateManager.js';
 import type { JobScheduler } from '../scheduler/JobScheduler.js';
 import type { InstarConfig } from '../core/types.js';
 import { rateLimiter, signViewPath } from './middleware.js';
+import type { WriteOperation, WriteToken } from '../core/StateWriteAuthority.js';
+import { validateWriteToken, canPerformOperation } from '../core/StateWriteAuthority.js';
 import type { TelegramAdapter } from '../messaging/TelegramAdapter.js';
 import type { RelationshipManager } from '../core/RelationshipManager.js';
 import type { FeedbackManager } from '../core/FeedbackManager.js';
@@ -30,6 +32,7 @@ import type { TunnelManager } from '../tunnel/TunnelManager.js';
 import type { EvolutionManager } from '../core/EvolutionManager.js';
 import type { EvolutionStatus, EvolutionType, GapCategory } from '../core/types.js';
 import type { SessionWatchdog } from '../monitoring/SessionWatchdog.js';
+import type { TopicMemory } from '../memory/TopicMemory.js';
 
 export interface RouteContext {
   config: InstarConfig;
@@ -49,6 +52,7 @@ export interface RouteContext {
   tunnel: TunnelManager | null;
   evolution: EvolutionManager | null;
   watchdog: SessionWatchdog | null;
+  topicMemory: TopicMemory | null;
   startTime: Date;
 }
 
@@ -498,6 +502,18 @@ export function createRoutes(ctx: RouteContext): Router {
       users: {
         count: userCount,
       },
+      topicMemory: {
+        enabled: !!ctx.topicMemory,
+        stats: ctx.topicMemory?.stats() ?? null,
+        endpoints: ctx.topicMemory ? [
+          'GET /topic/search?q=...&topic=N&limit=20',
+          'GET /topic/context/:topicId?recent=30',
+          'GET /topic/list',
+          'GET /topic/stats',
+          'POST /topic/summarize { topicId }',
+          'POST /topic/summary { topicId, summary, messageCount, lastMessageId }',
+        ] : [],
+      },
       monitoring: ctx.config.monitoring,
       evolution: {
         enabled: !!ctx.evolution,
@@ -527,7 +543,7 @@ export function createRoutes(ctx: RouteContext): Router {
           { context: 'User has a recurring task', action: 'Create a scheduled job in .instar/jobs.json. Explain it will run automatically.' },
           { context: 'User repeats a workflow', action: 'Create a skill in .claude/skills/. It becomes a slash command for future sessions.' },
           { context: 'User is debugging CI or deployment', action: 'Check CI health (GET /ci) for GitHub Actions status.' },
-          { context: 'User asks about past events', action: 'Search Telegram history (GET /telegram/search?q=...), check memory, review activity logs.' },
+          { context: 'User asks about past events or prior conversations', action: 'Search topic memory (GET /topic/search?q=...), get topic context (GET /topic/context/:topicId), check memory, review activity logs.' },
           { context: 'User frustrated with a limitation', action: 'Check for updates (GET /updates). Check dispatches (GET /dispatches/pending). The fix may already exist.' },
           { context: 'User asks to remember something', action: 'Write to .instar/MEMORY.md. Explain it persists across sessions.' },
           { context: 'Something needs user attention later', action: 'Queue in attention system (POST /attention). More reliable than hoping they see a message.' },
@@ -2185,6 +2201,368 @@ export function createRoutes(ctx: RouteContext): Router {
     }
     ctx.watchdog.setEnabled(enabled);
     res.json({ enabled: ctx.watchdog.isEnabled() });
+  });
+
+  // ── Topic Memory (conversation search & context) ─────────────────────
+
+  /**
+   * Search topic message history with FTS5 full-text search.
+   * GET /topic/search?q=query&topic=topicId&limit=20
+   */
+  router.get('/topic/search', (req, res) => {
+    if (!ctx.topicMemory) {
+      res.status(503).json({ error: 'TopicMemory not initialized' });
+      return;
+    }
+
+    const q = (req.query.q as string || '').trim();
+    if (!q) {
+      res.status(400).json({ error: 'q (search query) required' });
+      return;
+    }
+
+    const topicId = req.query.topic ? parseInt(req.query.topic as string, 10) : undefined;
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 100);
+
+    const results = ctx.topicMemory.search(q, { topicId, limit });
+    res.json({ query: q, topicId: topicId ?? null, results, totalResults: results.length });
+  });
+
+  /**
+   * Get full context for a topic (summary + recent messages).
+   * GET /topic/context/:topicId?recent=30
+   */
+  router.get('/topic/context/:topicId', (req, res) => {
+    if (!ctx.topicMemory) {
+      res.status(503).json({ error: 'TopicMemory not initialized' });
+      return;
+    }
+
+    const topicId = parseInt(req.params.topicId, 10);
+    if (isNaN(topicId)) {
+      res.status(400).json({ error: 'Invalid topicId' });
+      return;
+    }
+
+    const recentLimit = Math.min(parseInt(req.query.recent as string, 10) || 30, 100);
+    const context = ctx.topicMemory.getTopicContext(topicId, recentLimit);
+    res.json(context);
+  });
+
+  /**
+   * List all topics with metadata.
+   * GET /topic/list
+   */
+  router.get('/topic/list', (_req, res) => {
+    if (!ctx.topicMemory) {
+      res.status(503).json({ error: 'TopicMemory not initialized' });
+      return;
+    }
+
+    const topics = ctx.topicMemory.listTopics();
+    res.json({ topics, total: topics.length });
+  });
+
+  /**
+   * Get topic memory stats.
+   * GET /topic/stats
+   */
+  router.get('/topic/stats', (_req, res) => {
+    if (!ctx.topicMemory) {
+      res.status(503).json({ error: 'TopicMemory not initialized' });
+      return;
+    }
+
+    res.json(ctx.topicMemory.stats());
+  });
+
+  /**
+   * Trigger summary generation for a topic.
+   * POST /topic/summarize { topicId: number }
+   */
+  router.post('/topic/summarize', (req, res) => {
+    if (!ctx.topicMemory) {
+      res.status(503).json({ error: 'TopicMemory not initialized' });
+      return;
+    }
+
+    const topicId = req.body?.topicId;
+    if (typeof topicId !== 'number') {
+      res.status(400).json({ error: 'topicId (number) required' });
+      return;
+    }
+
+    const needsUpdate = ctx.topicMemory.needsSummaryUpdate(topicId, 1);
+    const messagesSince = ctx.topicMemory.getMessagesSinceSummary(topicId);
+    const currentSummary = ctx.topicMemory.getTopicSummary(topicId);
+
+    // Return the data needed for an LLM to generate the summary.
+    // The actual LLM call happens in the calling session (not in the HTTP handler).
+    res.json({
+      topicId,
+      needsUpdate,
+      currentSummary: currentSummary?.summary ?? null,
+      messagesSinceSummary: messagesSince.length,
+      messages: messagesSince.map(m => ({
+        from: m.fromUser ? 'User' : 'Agent',
+        text: m.text,
+        timestamp: m.timestamp,
+        messageId: m.messageId,
+      })),
+    });
+  });
+
+  /**
+   * Save a generated summary for a topic.
+   * POST /topic/summary { topicId, summary, messageCount, lastMessageId }
+   */
+  router.post('/topic/summary', (req, res) => {
+    if (!ctx.topicMemory) {
+      res.status(503).json({ error: 'TopicMemory not initialized' });
+      return;
+    }
+
+    const { topicId, summary, messageCount, lastMessageId } = req.body || {};
+    if (typeof topicId !== 'number' || typeof summary !== 'string') {
+      res.status(400).json({ error: 'topicId (number) and summary (string) required' });
+      return;
+    }
+
+    ctx.topicMemory.saveTopicSummary(topicId, summary, messageCount ?? 0, lastMessageId ?? 0);
+    res.json({ saved: true, topicId });
+  });
+
+  /**
+   * Rebuild topic memory from JSONL (idempotent import).
+   * POST /topic/rebuild
+   */
+  router.post('/topic/rebuild', (_req, res) => {
+    if (!ctx.topicMemory) {
+      res.status(503).json({ error: 'TopicMemory not initialized' });
+      return;
+    }
+
+    const jsonlPath = path.join(ctx.config.stateDir, 'telegram-messages.jsonl');
+    const imported = ctx.topicMemory.rebuild(jsonlPath);
+    res.json({ rebuilt: true, messagesImported: imported, stats: ctx.topicMemory.stats() });
+  });
+
+  // ── Pairing API — Multi-machine state sync (Phase 4.5) ────────
+
+  /**
+   * POST /state/submit — Secondary machine submits a state change.
+   * Validates write token, checks operation authorization, applies or queues.
+   */
+  router.post('/state/submit', (req, res) => {
+    const { operation, payload, machineId, writeToken } = req.body || {};
+
+    // Validate required fields
+    if (!operation || !payload || !machineId || !writeToken) {
+      res.status(400).json({
+        error: 'Missing required fields: operation, payload, machineId, writeToken',
+      });
+      return;
+    }
+
+    if (typeof operation !== 'string' || typeof machineId !== 'string' || typeof writeToken !== 'string') {
+      res.status(400).json({ error: 'operation, machineId, and writeToken must be strings' });
+      return;
+    }
+
+    // Load stored write tokens
+    const tokensFile = path.join(ctx.config.stateDir, 'write-tokens.json');
+    let storedTokens: WriteToken[] = [];
+    try {
+      if (fs.existsSync(tokensFile)) {
+        storedTokens = JSON.parse(fs.readFileSync(tokensFile, 'utf-8'));
+      }
+    } catch {
+      res.status(500).json({ error: 'Failed to load write tokens' });
+      return;
+    }
+
+    // Validate the write token
+    const tokenResult = validateWriteToken(writeToken, storedTokens);
+    if (!tokenResult.valid) {
+      res.status(403).json({ error: tokenResult.error });
+      return;
+    }
+
+    // Verify the token was issued to the claiming machine
+    if (tokenResult.machineId !== machineId) {
+      res.status(403).json({ error: 'Write token does not match machineId' });
+      return;
+    }
+
+    // Check if the operation is allowed
+    const opCheck = canPerformOperation(operation as WriteOperation);
+    if (!opCheck.allowed) {
+      res.status(403).json({
+        error: opCheck.reason,
+        requiresConfirmation: opCheck.requiresConfirmation,
+      });
+      return;
+    }
+
+    // Apply the state change based on operation type
+    try {
+      switch (operation as WriteOperation) {
+        case 'addMemory': {
+          // Append memory entry to memories.jsonl
+          const memoriesFile = path.join(ctx.config.stateDir, 'memories.jsonl');
+          const entry = { ...payload, sourceMachineId: machineId, appliedAt: new Date().toISOString() };
+          fs.appendFileSync(memoriesFile, JSON.stringify(entry) + '\n');
+          res.json({ applied: true, operation });
+          break;
+        }
+        case 'updateProfile': {
+          // Update a user profile field
+          const usersFile = path.join(ctx.config.stateDir, 'users.json');
+          if (!fs.existsSync(usersFile)) {
+            res.status(404).json({ error: 'No users file found' });
+            return;
+          }
+          const users = JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
+          const targetUser = users.find((u: { id: string }) => u.id === payload.userId);
+          if (!targetUser) {
+            res.status(404).json({ error: `User ${payload.userId} not found` });
+            return;
+          }
+          // Apply the update fields (shallow merge)
+          if (payload.updates && typeof payload.updates === 'object') {
+            Object.assign(targetUser, payload.updates);
+          }
+          fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+          res.json({ applied: true, operation, userId: payload.userId });
+          break;
+        }
+        case 'heartbeat': {
+          // Heartbeat is handled by the dedicated endpoint below
+          res.json({ applied: true, operation });
+          break;
+        }
+        default: {
+          res.status(400).json({ error: `Unknown operation: ${operation}` });
+        }
+      }
+    } catch (err) {
+      res.status(500).json({
+        error: 'Failed to apply state change',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /**
+   * GET /state/sync — Secondary machine pulls latest state.
+   * Returns current users, config summary, and machine registry.
+   */
+  router.get('/state/sync', (_req, res) => {
+    try {
+      // Read users
+      const usersFile = path.join(ctx.config.stateDir, 'users.json');
+      let users: unknown[] = [];
+      if (fs.existsSync(usersFile)) {
+        try {
+          users = JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
+        } catch { /* empty array on corruption */ }
+      }
+
+      // Read machine registry
+      const registryFile = path.join(ctx.config.stateDir, 'machine-registry.json');
+      let machineRegistry: unknown = { version: 1, machines: {} };
+      if (fs.existsSync(registryFile)) {
+        try {
+          machineRegistry = JSON.parse(fs.readFileSync(registryFile, 'utf-8'));
+        } catch { /* default on corruption */ }
+      }
+
+      // Config summary (non-sensitive fields only)
+      const configSummary = {
+        projectName: ctx.config.projectName,
+        userRegistrationPolicy: ctx.config.userRegistrationPolicy ?? 'admin-only',
+        agentAutonomy: ctx.config.agentAutonomy?.level ?? 'supervised',
+        multiMachine: ctx.config.multiMachine ?? { enabled: false },
+        userCount: users.length,
+      };
+
+      res.json({
+        users,
+        machineRegistry,
+        configSummary,
+        syncedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: 'Failed to sync state',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /**
+   * POST /state/heartbeat — Secondary machine reports online status.
+   * Updates lastSeen for the machine and returns queued change count.
+   */
+  router.post('/state/heartbeat', (req, res) => {
+    const { machineId } = req.body || {};
+
+    if (!machineId || typeof machineId !== 'string') {
+      res.status(400).json({ error: 'machineId (string) required' });
+      return;
+    }
+
+    try {
+      // Update machine lastSeen in registry
+      const registryFile = path.join(ctx.config.stateDir, 'machine-registry.json');
+      let registry: { version: number; machines: Record<string, { lastSeen: string; [k: string]: unknown }> } = {
+        version: 1,
+        machines: {},
+      };
+
+      if (fs.existsSync(registryFile)) {
+        try {
+          registry = JSON.parse(fs.readFileSync(registryFile, 'utf-8'));
+        } catch { /* use default */ }
+      }
+
+      if (registry.machines[machineId]) {
+        registry.machines[machineId].lastSeen = new Date().toISOString();
+        fs.writeFileSync(registryFile, JSON.stringify(registry, null, 2));
+      }
+
+      // Count queued changes for this machine (from offline queue if it exists)
+      const queueFile = path.join(
+        process.env.HOME || process.env.USERPROFILE || '/tmp',
+        '.instar', 'offline-queue', `${ctx.config.projectName}.jsonl`,
+      );
+      let queuedChanges = 0;
+      if (fs.existsSync(queueFile)) {
+        const content = fs.readFileSync(queueFile, 'utf-8').trim();
+        if (content) {
+          queuedChanges = content.split('\n').filter(line => {
+            try {
+              const entry = JSON.parse(line);
+              return entry.sourceMachineId === machineId;
+            } catch {
+              return false;
+            }
+          }).length;
+        }
+      }
+
+      res.json({
+        status: 'ok',
+        machineId,
+        queuedChanges,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      res.status(500).json({
+        error: 'Heartbeat processing failed',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   return router;

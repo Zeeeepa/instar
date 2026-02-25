@@ -108,6 +108,41 @@ export class UserManager {
     return user.permissions.includes(permission) || user.permissions.includes('admin');
   }
 
+  /**
+   * Add a user interactively (with defaults applied).
+   * Returns the full profile.
+   */
+  addUserInteractive(partialProfile: Partial<UserProfile> & { id: string; name: string }): UserProfile {
+    const profile: UserProfile = {
+      channels: [],
+      permissions: ['user'],
+      preferences: {},
+      createdAt: new Date().toISOString(),
+      ...partialProfile,
+    };
+    this.upsertUser(profile);
+    return profile;
+  }
+
+  /**
+   * List users formatted for wizard display.
+   * Returns name + id pairs suitable for selection prompts.
+   */
+  listUsersForSelection(): Array<{ name: string; value: string; description: string }> {
+    return this.listUsers().map(user => ({
+      name: user.name,
+      value: user.id,
+      description: `${user.permissions.includes('admin') ? 'Admin' : 'User'} — ${user.channels.map(c => c.type).join(', ') || 'no channels'}`,
+    }));
+  }
+
+  /**
+   * Find admin users.
+   */
+  getAdmins(): UserProfile[] {
+    return this.listUsers().filter(u => u.permissions.includes('admin'));
+  }
+
   private validateProfile(profile: UserProfile): void {
     if (!profile.id || typeof profile.id !== 'string' || !profile.id.trim()) {
       throw new Error('UserProfile.id must be a non-empty string');

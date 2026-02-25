@@ -35,6 +35,7 @@ import { TunnelManager } from '../tunnel/TunnelManager.js';
 import { PostUpdateMigrator } from '../core/PostUpdateMigrator.js';
 import { UpgradeGuideProcessor } from '../core/UpgradeGuideProcessor.js';
 import { EvolutionManager } from '../core/EvolutionManager.js';
+import { TopicMemory } from '../memory/TopicMemory.js';
 import { QuotaTracker } from '../monitoring/QuotaTracker.js';
 import { AccountSwitcher } from '../monitoring/AccountSwitcher.js';
 import { QuotaNotifier } from '../monitoring/QuotaNotifier.js';
@@ -74,6 +75,83 @@ function isAutostartInstalled(projectName: string): boolean {
 }
 
 /**
+ * Spawn a session for a topic with full conversational context.
+ * Shared by both auto-spawn (new topic) and respawn (dead session) paths.
+ *
+ * Context loading priority (when TopicMemory is available):
+ *   1. Rolling conversation summary (captures full history)
+ *   2. Recent messages (last 30 — the immediate context)
+ *   3. Search instructions (so agent can query deeper history)
+ *
+ * Fallback: JSONL-based last 20 messages (when TopicMemory unavailable).
+ *
+ * Returns the new tmux session name.
+ */
+async function spawnSessionForTopic(
+  sessionManager: SessionManager,
+  telegram: TelegramAdapter,
+  sessionName: string,
+  topicId: number,
+  latestMessage?: string,
+  topicMemory?: TopicMemory,
+): Promise<string> {
+  const msg = latestMessage || 'Session started — send a message to continue.';
+
+  let contextContent: string = '';
+
+  // Prefer TopicMemory (SQLite-backed, with summaries) over raw JSONL scan
+  if (topicMemory) {
+    try {
+      contextContent = topicMemory.formatContextForSession(topicId, 30);
+    } catch (err) {
+      console.error(`[telegram→session] TopicMemory context failed, falling back to JSONL:`, err);
+    }
+  }
+
+  // Fallback to JSONL-based history
+  if (!contextContent) {
+    try {
+      const history = telegram.getTopicHistory(topicId, 20);
+      if (history.length > 0) {
+        const lines: string[] = [];
+        lines.push(`--- Thread History (last ${history.length} messages) ---`);
+        lines.push(`IMPORTANT: Read this history carefully before taking any action.`);
+        lines.push(`Your task is to continue THIS conversation, not start something new.`);
+        lines.push(``);
+        for (const m of history) {
+          const sender = m.fromUser ? 'User' : 'Agent';
+          const ts = m.timestamp ? new Date(m.timestamp).toISOString().slice(11, 19) : '??:??';
+          const text = (m.text || '').slice(0, 300);
+          lines.push(`[${ts}] ${sender}: ${text}`);
+        }
+        lines.push(``);
+        lines.push(`--- End Thread History ---`);
+        contextContent = lines.join('\n');
+      }
+    } catch (err) {
+      console.error(`[telegram→session] Failed to fetch thread history:`, err);
+    }
+  }
+
+  // Write context to temp file for Claude to read
+  const tmpDir = '/tmp/instar-telegram';
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  let bootstrapMessage: string;
+
+  if (contextContent) {
+    const filepath = path.join(tmpDir, `history-${topicId}-${Date.now()}-${process.pid}.txt`);
+    fs.writeFileSync(filepath, contextContent);
+    bootstrapMessage = `[telegram:${topicId}] ${msg} (Thread history and context at ${filepath} — read it for context before responding.)`;
+  } else {
+    bootstrapMessage = `[telegram:${topicId}] ${msg}`;
+  }
+
+  const newSessionName = await sessionManager.spawnInteractiveSession(bootstrapMessage, sessionName, { telegramTopicId: topicId });
+  return newSessionName;
+}
+
+/**
  * Respawn a session for a topic, including thread history in the bootstrap.
  * This prevents "thread drift" where respawned sessions lose context.
  */
@@ -83,57 +161,16 @@ async function respawnSessionForTopic(
   targetSession: string,
   topicId: number,
   latestMessage?: string,
+  topicMemory?: TopicMemory,
 ): Promise<void> {
   console.log(`[telegram→session] Session "${targetSession}" needs respawn for topic ${topicId}`);
-
-  const msg = latestMessage || 'Session respawned — send a message to continue.';
-
-  // Fetch thread history for context
-  let historyLines: string[] = [];
-  try {
-    const history = telegram.getTopicHistory(topicId, 20);
-    if (history.length > 0) {
-      historyLines.push(`--- Thread History (last ${history.length} messages) ---`);
-      historyLines.push(`IMPORTANT: Read this history carefully before taking any action.`);
-      historyLines.push(`Your task is to continue THIS conversation, not start something new.`);
-      historyLines.push(``);
-      for (const m of history) {
-        const sender = m.fromUser ? 'User' : 'Agent';
-        const ts = m.timestamp ? new Date(m.timestamp).toISOString().slice(11, 19) : '??:??';
-        const text = (m.text || '').slice(0, 300);
-        historyLines.push(`[${ts}] ${sender}: ${text}`);
-      }
-      historyLines.push(``);
-      historyLines.push(`--- End Thread History ---`);
-    }
-  } catch (err) {
-    console.error(`[telegram→session] Failed to fetch thread history:`, err);
-  }
-
-  // Single-line bootstrap to avoid tmux send-keys newline issues.
-  // Thread history and context go into temp files for Claude to read.
-  const tmpDir = '/tmp/instar-telegram';
-  fs.mkdirSync(tmpDir, { recursive: true });
-
-  let bootstrapMessage: string;
-  const relayNote = `You MUST relay your response via: cat <<'EOF' | .claude/scripts/telegram-reply.sh ${topicId}\nYour response\nEOF`;
-
-  if (historyLines.length > 0) {
-    const historyContent = historyLines.join('\n');
-    const filepath = path.join(tmpDir, `history-${topicId}-${Date.now()}-${process.pid}.txt`);
-    fs.writeFileSync(filepath, historyContent);
-
-    // Single-line: user message + file reference for history + relay instructions
-    bootstrapMessage = `[telegram:${topicId}] ${msg} (Session respawned. Thread history at ${filepath} — read it for context before responding. ${relayNote})`;
-  } else {
-    bootstrapMessage = `[telegram:${topicId}] ${msg} (${relayNote})`;
-  }
 
   const storedName = telegram.getTopicName(topicId);
   // Use topic name, not tmux session name — tmux names include the project prefix
   // which causes cascading names like ai-guy-ai-guy-ai-guy-topic-1 on each respawn.
   const topicName = storedName || `topic-${topicId}`;
-  const newSessionName = await sessionManager.spawnInteractiveSession(bootstrapMessage, topicName, { telegramTopicId: topicId });
+
+  const newSessionName = await spawnSessionForTopic(sessionManager, telegram, topicName, topicId, latestMessage, topicMemory);
 
   telegram.registerTopicSession(topicId, newSessionName);
   await telegram.sendToTopic(topicId, `Session respawned.`);
@@ -151,6 +188,7 @@ function wireTelegramCallbacks(
   quotaTracker?: QuotaTracker,
   accountSwitcher?: AccountSwitcher,
   claudePath?: string,
+  topicMemory?: TopicMemory,
 ): void {
   // /interrupt — send Escape key to a tmux session
   telegram.onInterruptSession = async (sessionName: string): Promise<boolean> => {
@@ -172,7 +210,7 @@ function wireTelegramCallbacks(
     } catch { /* may already be dead */ }
 
     // Respawn with thread history
-    await respawnSessionForTopic(sessionManager, telegram, sessionName, topicId);
+    await respawnSessionForTopic(sessionManager, telegram, sessionName, topicId, undefined, topicMemory);
   };
 
   // /sessions — list running sessions
@@ -385,6 +423,7 @@ function wireTelegramRouting(
   telegram: TelegramAdapter,
   sessionManager: SessionManager,
   quotaTracker?: QuotaTracker,
+  topicMemory?: TopicMemory,
 ): void {
   telegram.onTopicMessage = (msg: Message) => {
     const topicId = (msg.metadata?.messageThreadId as number) ?? null;
@@ -450,39 +489,19 @@ function wireTelegramRouting(
 
         if (!isQuotaDeath) {
           telegram.sendToTopic(topicId, `🔄 Session restarting — message queued.`).catch(() => {});
-          respawnSessionForTopic(sessionManager, telegram, targetSession, topicId, text).catch(err => {
+          respawnSessionForTopic(sessionManager, telegram, targetSession, topicId, text, topicMemory).catch(err => {
             console.error(`[telegram→session] Respawn failed:`, err);
           });
         }
       }
     } else {
-      // No session mapped — auto-spawn one
-      console.log(`[telegram→session] No session for topic ${topicId}, auto-spawning...`);
+      // No session mapped — auto-spawn with topic history (same as respawn path).
+      // Without history, the agent has no conversational context and gives blind answers.
+      console.log(`[telegram→session] No session for topic ${topicId}, auto-spawning with history...`);
       const storedName = telegram.getTopicName(topicId) || `topic-${topicId}`;
 
-      // Write relay instructions to a temp file and reference it in the bootstrap message.
-      // The session needs to know HOW to respond back to Telegram.
-      const contextLines = [
-        `This session was auto-created for Telegram topic ${topicId}.`,
-        ``,
-        `CRITICAL: You MUST relay your response back to Telegram after responding.`,
-        `Use the relay script:`,
-        ``,
-        `cat <<'EOF' | .claude/scripts/telegram-reply.sh ${topicId}`,
-        `Your response text here`,
-        `EOF`,
-        ``,
-        `Strip the [telegram:${topicId}] prefix before interpreting the message.`,
-        `Only relay conversational text — not tool output or internal reasoning.`,
-      ];
-      const tmpDir = '/tmp/instar-telegram';
-      fs.mkdirSync(tmpDir, { recursive: true });
-      const ctxPath = path.join(tmpDir, `ctx-${topicId}-${Date.now()}.txt`);
-      fs.writeFileSync(ctxPath, contextLines.join('\n'));
-
-      const bootstrapMessage = `[telegram:${topicId}] ${text} (IMPORTANT: Read ${ctxPath} for Telegram relay instructions — you MUST relay your response back.)`;
-
-      sessionManager.spawnInteractiveSession(bootstrapMessage, storedName, { telegramTopicId: topicId }).then((newSessionName) => {
+      // Use the shared spawn helper that includes topic history
+      spawnSessionForTopic(sessionManager, telegram, storedName, topicId, text, topicMemory).then((newSessionName) => {
         telegram.registerTopicSession(topicId, newSessionName);
         telegram.sendToTopic(topicId, `Session starting up — reading your message now. One moment.`).catch(() => {});
         console.log(`[telegram→session] Auto-spawned "${newSessionName}" for topic ${topicId}`);
@@ -831,6 +850,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     // When --no-telegram is set (lifeline owns polling), create adapter in send-only mode
     // so the server can still relay replies via /telegram/reply/:topicId
     let telegram: TelegramAdapter | undefined;
+    let topicMemory: TopicMemory | undefined;
     const telegramConfig = config.messaging.find(m => m.type === 'telegram' && m.enabled);
     const skipTelegram = options.telegram === false; // --no-telegram sets telegram: false
     // Standby machines use send-only Telegram — they don't poll for messages
@@ -877,9 +897,105 @@ export async function startServer(options: StartOptions): Promise<void> {
         console.log(pc.green('  Quota notifications enabled'));
       }
 
+      // Initialize TopicMemory — SQLite-backed conversational memory.
+      // Topic history is the primary context for every session.
+      topicMemory = new TopicMemory(config.stateDir);
+      try {
+        await topicMemory.open();
+
+        // Import existing messages from JSONL (idempotent — only inserts new ones)
+        const jsonlPath = path.join(config.stateDir, 'telegram-messages.jsonl');
+        if (fs.existsSync(jsonlPath)) {
+          const imported = topicMemory.importFromJsonl(jsonlPath);
+          if (imported > 0) {
+            console.log(pc.green(`  TopicMemory: imported ${imported} messages from JSONL`));
+          }
+        }
+
+        const tmStats = topicMemory.stats();
+        console.log(pc.green(`  TopicMemory: ${tmStats.totalMessages} messages, ${tmStats.totalTopics} topics, ${tmStats.topicsWithSummaries} summaries`));
+
+        // Wire dual-write: every message logged to JSONL also goes to SQLite
+        const tm = topicMemory; // Capture for closure (TypeScript narrowing)
+        telegram.onMessageLogged = (entry) => {
+          if (entry.topicId != null && tm) {
+            tm.insertMessage({
+              messageId: entry.messageId,
+              topicId: entry.topicId,
+              text: entry.text,
+              fromUser: entry.fromUser,
+              timestamp: entry.timestamp,
+              sessionName: entry.sessionName,
+            });
+          }
+        };
+      } catch (err) {
+        console.error(`  TopicMemory init failed (non-critical): ${err instanceof Error ? err.message : err}`);
+      }
+
       // Wire up topic → session routing and session management callbacks
-      wireTelegramRouting(telegram, sessionManager, quotaTracker);
-      wireTelegramCallbacks(telegram, sessionManager, state, quotaTracker, accountSwitcher, config.sessions.claudePath);
+      wireTelegramRouting(telegram, sessionManager, quotaTracker, topicMemory);
+      wireTelegramCallbacks(telegram, sessionManager, state, quotaTracker, accountSwitcher, config.sessions.claudePath, topicMemory);
+
+      // Wire up unknown-user handling (Multi-User Setup Wizard Phase 4.5)
+      telegram.onGetRegistrationPolicy = () => ({
+        policy: config.userRegistrationPolicy ?? 'admin-only',
+        contactHint: config.registrationContactHint,
+        agentName: config.projectName,
+      });
+
+      telegram.onNotifyAdminJoinRequest = async (request) => {
+        const { JoinRequestManager } = await import('../users/UserOnboarding.js');
+        const joinManager = new JoinRequestManager(config.stateDir);
+        const joinRequest = joinManager.createRequest(
+          request.name,
+          request.telegramUserId,
+          null, // agentAssessment — could be enhanced later with LLM evaluation
+        );
+
+        // Notify admin via Lifeline topic (the always-available admin channel)
+        const lifelineTopicId = telegram!.getLifelineTopicId();
+        if (lifelineTopicId) {
+          const userLabel = request.username ? `@${request.username}` : request.name;
+          await telegram!.sendToTopic(lifelineTopicId,
+            `\ud83d\udc64 **Join Request** from ${userLabel} (ID: ${request.telegramUserId})\n\n` +
+            `To approve: \`/approve ${joinRequest.approvalCode}\`\n` +
+            `To deny: \`/deny ${joinRequest.approvalCode}\``,
+          ).catch(() => {});
+        }
+      };
+
+      telegram.onStartMiniOnboarding = async (telegramUserId, firstName, username) => {
+        const { buildUserProfile, buildCondensedConsentDisclosure } = await import('../users/UserOnboarding.js');
+
+        // Send consent disclosure first
+        const consentText = buildCondensedConsentDisclosure(config.projectName);
+        await telegram!.sendToTopic(1, consentText).catch(() => {}); // General topic
+
+        // Build a basic profile (consent will be confirmed via follow-up reply)
+        const profile = buildUserProfile({
+          name: firstName,
+          telegramUserId,
+        });
+
+        // Add to users via UserManager
+        const { UserManager } = await import('../users/UserManager.js');
+        const userManager = new UserManager(config.stateDir, config.users);
+        userManager.upsertUser(profile);
+
+        // Add to authorized user IDs so future messages are accepted
+        const telegramConfig = config.messaging?.find(m => m.type === 'telegram');
+        if (telegramConfig?.config) {
+          const authIds = (telegramConfig.config.authorizedUserIds as number[]) ?? [];
+          if (!authIds.includes(telegramUserId)) {
+            authIds.push(telegramUserId);
+            telegramConfig.config.authorizedUserIds = authIds;
+          }
+        }
+
+        console.log(`[telegram] Mini-onboarding complete for ${firstName} (${telegramUserId})`);
+      };
+
       console.log(pc.green('  Telegram message routing active'));
 
       if (scheduler) {
@@ -904,6 +1020,32 @@ export async function startServer(options: StartOptions): Promise<void> {
         scheduler!.processQueue();
         scheduler!.notifyJobComplete(session.id, session.tmuxSession);
       });
+    }
+
+    // Auto-summarize topics on session completion.
+    // When a Telegram-linked session ends, check if its topic needs a summary update.
+    // Uses Haiku for cost efficiency — summaries don't need deep reasoning.
+    if (topicMemory && telegram) {
+      const { TopicSummarizer } = await import('../memory/TopicSummarizer.js');
+      const { ClaudeCliIntelligenceProvider } = await import('../core/ClaudeCliIntelligenceProvider.js');
+      const summaryIntelligence = new ClaudeCliIntelligenceProvider(config.sessions.claudePath);
+      const summarizer = new TopicSummarizer(summaryIntelligence, topicMemory);
+
+      sessionManager.on('sessionComplete', (session) => {
+        // Find the topic linked to this session
+        const sessionTopicId = telegram!.getTopicForSession(session.tmuxSession);
+        if (!sessionTopicId) return;
+
+        // Check if this topic needs a summary update (async, fire-and-forget)
+        summarizer.summarize(sessionTopicId).then((result) => {
+          if (result) {
+            console.log(`[TopicSummarizer] Updated summary for topic ${sessionTopicId}: ${result.messagesProcessed} messages processed in ${result.durationMs}ms`);
+          }
+        }).catch((err) => {
+          console.error(`[TopicSummarizer] Failed for topic ${sessionTopicId}: ${err instanceof Error ? err.message : err}`);
+        });
+      });
+      console.log(pc.green('  Topic auto-summarization enabled (on session end)'));
     }
 
     // Session Watchdog — auto-remediation for stuck commands
@@ -1122,7 +1264,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     });
     sleepWakeDetector.start();
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog, topicMemory, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
     await server.start();
 
     // Start tunnel AFTER server is listening
@@ -1189,15 +1331,17 @@ export async function startServer(options: StartOptions): Promise<void> {
               await sessionManager.spawnSession({
                 name: 'upgrade-notify',
                 prompt: [
-                  'IMPORTANT: You are a SHORT-LIVED session with ONE specific task. Do NOT search for files or explore the codebase. Everything you need is in this prompt.',
+                  'IMPORTANT: You are a SHORT-LIVED session with a SPECIFIC task. Do NOT search for files or explore the codebase. Everything you need is in this prompt.',
                   '',
-                  'You have been updated to a new Instar version. Read the upgrade guide below, then:',
+                  'You have been updated to a new Instar version. Read the upgrade guide below, then do ALL THREE steps:',
                   '',
-                  '1. Compose a brief, personalized message (3-8 sentences) for your user about the new features.',
+                  '## Step 1: Notify your user',
+                  '',
+                  'Compose a brief, personalized message (3-8 sentences) for your user about the new features.',
                   '   RULES:',
                   '   - Write like you\'re texting a friend — warm, conversational, no jargon',
                   '   - This should NOT look like a changelog or release notes',
-                  '   - Lead with the biggest USER-VISIBLE feature (usually the dashboard if this is the first time)',
+                  '   - Lead with the biggest USER-VISIBLE feature',
                   '   - Include CONCRETE details — actual URLs, PINs, things they can click/use right now',
                   '   - NEVER mention "bearer tokens", "auth tokens", version numbers in headers, or internal implementation details',
                   '   - Focus on what matters to THEM, not internal plumbing',
@@ -1208,14 +1352,32 @@ export async function startServer(options: StartOptions): Promise<void> {
                   dashboardPin ? `   - Dashboard PIN: ${dashboardPin}` : '   - No dashboard PIN set',
                   `   - Current version: ${getInstalledVersion()}`,
                   '',
-                  `2. Send the message via Telegram:`,
+                  `Send the message via Telegram:`,
                   hasReplyScript && notifyTopicId
                     ? `   Run: cat <<'MSGEOF' | bash ${replyScript} ${notifyTopicId}\nYOUR_MESSAGE_HERE\nMSGEOF`
                     : `   Use the telegram-reply script in .instar/scripts/ to send to the updates topic.`,
                   '',
-                  '3. Run: instar upgrade-ack',
+                  '## Step 2: Update your memory with new capabilities',
                   '',
-                  'That is ALL. Do not do anything else. Do not search for files. Do not read config files. Just compose, send, ack.',
+                  'Read the upgrade guide\'s "Summary of New Capabilities" section and add the relevant information to your MEMORY.md file (.instar/MEMORY.md).',
+                  'This ensures you KNOW about these capabilities in every future session — not just this one.',
+                  '',
+                  'Add a section like:',
+                  '```',
+                  '## Capabilities Added in vX.Y.Z',
+                  '- Brief description of each capability',
+                  '- How to use it (API endpoints, commands, automatic behaviors)',
+                  '- Any behavioral changes you should be aware of',
+                  '```',
+                  '',
+                  'Keep it concise — focus on WHAT you can now do and HOW to do it, not the implementation details.',
+                  'If there are existing capability notes in MEMORY.md, update or merge rather than duplicate.',
+                  '',
+                  '## Step 3: Acknowledge',
+                  '',
+                  'Run: instar upgrade-ack',
+                  '',
+                  'Do all three steps, then exit. Do not search for files or read config files beyond MEMORY.md.',
                   '',
                   '--- UPGRADE GUIDE ---',
                   guideContent,

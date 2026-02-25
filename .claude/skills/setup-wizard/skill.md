@@ -24,6 +24,143 @@ This wizard runs in a terminal that may be narrow (80-120 chars). Long text gets
 **Good** (fits in terminal):
 > Everything here is just a starting point. You can change any of it later — or just tell your agent to adjust itself.
 
+## Phase 0: Multi-User Decision Tree
+
+**Check the prompt context first.** The setup launcher passes detection data. If `existingAgent=true`, this is NOT a fresh install — present the multi-user decision tree instead of the standard setup.
+
+### If existingAgent=true (agent already set up)
+
+Read the detection context: `agentName`, `knownUsers`, `machinesPaired`, etc.
+
+Present THREE options:
+
+> **[Agent name] is already set up here.**
+>
+> What brings you here?
+
+1. **"I'm a new user joining this agent"** → Go to [New User Flow](#new-user-flow)
+2. **"I'm an existing user on a new machine"** → Go to [Existing User Flow](#existing-user-flow)
+3. **"I want to start fresh with a new agent"** → Confirm ("This will replace the existing agent. Are you sure?"), then go to standard Phase 1.
+
+### If existingAgent=false (no agent found)
+
+Present context-aware options:
+
+**If inside a git repo:**
+1. **"Set up a new project agent"** → Go to standard Phase 1
+2. **"Connect to an existing agent"** → Go to [Connect Flow](#connect-flow)
+
+**If NOT inside a git repo:**
+1. **"Set up a new standalone agent"** → Go to standard Phase 1
+2. **"Connect to an existing agent"** → Go to [Connect Flow](#connect-flow)
+
+---
+
+### New User Flow
+
+Triggered when someone new is joining an existing agent.
+
+1. Read `.instar/AGENT.md` for the agent's name and personality.
+2. Greet: "[Agent name] is already set up. Let's get you connected."
+3. **Show consent disclosure BEFORE collecting any data:**
+   > Before we get started, here's what [Agent name] stores:
+   > - Your name and communication preferences
+   > - Your Telegram user ID (for identity verification)
+   > - Conversation history within your personal topic
+   > - Memory entries from your sessions
+   >
+   > You can request deletion anytime. Sound good?
+4. If they decline, exit cleanly: "No problem. Run `npx instar` again if you change your mind."
+5. Gather: name, communication style preference, autonomy level preference.
+6. If Telegram is configured, create a personal topic for them via Bot API:
+   ```bash
+   curl -s -X POST "https://api.telegram.org/bot${TOKEN}/createForumTopic" \
+     -H 'Content-Type: application/json' \
+     -d '{"chat_id": "CHAT_ID", "name": "USER_NAME", "icon_color": 7322096}'
+   ```
+   If topic creation fails, set `pendingTelegramTopic: true` and tell the user.
+7. Create user profile using the onboarding module (import from `src/users/UserOnboarding.ts`).
+8. End with actionable next steps:
+   > You're all set. [Agent name] now knows you as [name].
+   > - Send a message in your Telegram topic to start talking
+   > - Run `instar status` to see the agent's state
+   > - Run `instar jobs` to see scheduled tasks
+
+---
+
+### Existing User Flow
+
+Triggered when an existing user is setting up a new machine.
+
+1. Read `.instar/users.json` and present known users.
+2. User selects themselves from the list.
+3. **Show brief consent before verification:**
+   > I'll send a verification code to your Telegram to confirm your identity.
+4. Verify identity (fallback chain):
+   - **Primary: Telegram push** — Send 6-digit code to their known topic. User enters it.
+   - **Fallback: Pairing code** — Generate on existing machine, user enters here.
+   - **Recovery key** — If they have the admin recovery key, verify with 24h security hold.
+   - **Fail-closed** — List all recovery options if nothing works.
+5. Generate machine identity for this machine.
+6. End with actionable next steps:
+   > This machine is now connected. You can talk to [Agent name] from here.
+   > - Your Telegram topic is already synced
+   > - Run `instar status` to confirm everything
+   > - Run `instar jobs` to see scheduled tasks
+
+---
+
+### Connect Flow
+
+Triggered when connecting to an existing agent from a machine with no `.instar/`.
+
+1. Ask: "What's the git remote URL for your agent's state?"
+   - Validate: only `https://` and `git@` URLs accepted.
+2. Ask: "Enter the connect code from your original machine."
+   - The original machine generates this via `npx instar` → "Show connect code"
+3. Clone: `git clone --depth=1 --no-recurse-submodules URL TARGET`
+4. Validate the cloned state (AGENT.md, config.json, users.json).
+5. Present disabled jobs/hooks with descriptions (not silently disabled):
+   > I found N scheduled jobs from the original machine:
+   > - [job name]: [description]
+   > Want to enable them on this machine?
+6. Follow New User or Existing User flow based on whether user is in users.json.
+7. Register in local agent registry.
+8. End with role-specific next steps.
+
+**Alternative path** (no git remote):
+- "Is the agent's original machine on the same network?"
+- If yes: Connect via pairing protocol.
+- If no: Provide instructions for enabling remote connect.
+
+---
+
+### Fresh Install Additions (Multi-User)
+
+When the user is doing a fresh install AND answers "yes" to "Will other people use this agent?":
+
+1. **Ask registration policy:**
+   > How should new people join [Agent name]?
+   - "I'll approve each person" → `admin-only`
+   - "Anyone with an invite code" → `invite-only`
+   - "Anyone can join freely" → `open`
+
+2. **Ask agent autonomy level:**
+   > How much should [Agent name] handle on its own?
+   - "Check with me on everything" → `supervised`
+   - "Handle routine stuff, ask on big decisions" → `collaborative` (default)
+   - "Handle everything, tell me what happened" → `autonomous`
+
+3. **Generate recovery key:**
+   Display it once and tell the admin to save it:
+   > Save this recovery key somewhere safe.
+   > It's the only way to regain access if you lose this machine.
+   > Recovery key: [32-byte hex]
+
+Write these to config.json: `userRegistrationPolicy`, `agentAutonomy`, `recoveryKey` (hashed).
+
+---
+
 ## Phase 1: Context Detection & Welcome
 
 **Do NOT ask "how do you want to use Instar?"** Instead, detect the context automatically and present an intelligent default.

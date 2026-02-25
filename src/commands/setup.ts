@@ -96,9 +96,46 @@ export async function runSetup(opts?: { classic?: boolean }): Promise<void> {
     gitContext = ' This directory is NOT inside a git repository. Set up a standalone agent at ~/.instar/agents/<name>/ using `npx instar init --standalone <name>`.';
   }
 
-  // Detect if .instar already exists (existing project)
-  const existingConfig = fs.existsSync(path.join(projectDir, '.instar', 'config.json'));
-  const existingContext = existingConfig ? ' An existing .instar/config.json was found — offer to reconfigure or skip.' : '';
+  // Detect existing agent context for the multi-user decision tree (Phase 1)
+  const stateDir = path.join(projectDir, '.instar');
+  const existingConfig = fs.existsSync(path.join(stateDir, 'config.json'));
+  let detectionContext = '';
+
+  if (existingConfig) {
+    // Read agent details for the wizard
+    let agentName = 'unknown';
+    let knownUsers: string[] = [];
+    let machinesPaired = 0;
+    let gitStateEnabled = false;
+    let telegramConfigured = false;
+    let registrationPolicy = 'admin-only';
+    let autonomyLevel = 'collaborative';
+
+    try {
+      const config = JSON.parse(fs.readFileSync(path.join(stateDir, 'config.json'), 'utf-8'));
+      agentName = config.projectName || 'unknown';
+      telegramConfigured = config.messaging?.some((m: { type: string; enabled?: boolean }) => m.type === 'telegram' && m.enabled !== false) || false;
+      gitStateEnabled = !!config.gitState?.enabled;
+      registrationPolicy = config.userRegistrationPolicy || 'admin-only';
+      autonomyLevel = config.agentAutonomy?.level || 'collaborative';
+    } catch { /* use defaults */ }
+
+    try {
+      const users = JSON.parse(fs.readFileSync(path.join(stateDir, 'users.json'), 'utf-8'));
+      knownUsers = users.map((u: { name: string }) => u.name);
+    } catch { /* empty */ }
+
+    try {
+      const registry = JSON.parse(fs.readFileSync(path.join(stateDir, 'machines', 'registry.json'), 'utf-8'));
+      machinesPaired = Object.keys(registry.machines || {}).filter(
+        (k: string) => registry.machines[k].status === 'active'
+      ).length;
+    } catch { /* zero */ }
+
+    detectionContext = ` EXISTING AGENT DETECTED: existingAgent=true, agentName="${agentName}", knownUsers=[${knownUsers.map(u => `"${u}"`).join(',')}], machinesPaired=${machinesPaired}, gitStateEnabled=${gitStateEnabled}, telegramConfigured=${telegramConfigured}, registrationPolicy="${registrationPolicy}", autonomyLevel="${autonomyLevel}". Present the 3-option decision tree: (1) "I'm a new user joining this agent", (2) "I'm an existing user on a new machine", (3) "I want to start fresh with a new agent".`;
+  } else {
+    detectionContext = ' No existing agent found.';
+  }
 
   // Pre-install Playwright browser binaries AND register the MCP server so the
   // wizard has browser automation available from the start. Both are required:
@@ -136,7 +173,7 @@ export async function runSetup(opts?: { classic?: boolean }): Promise<void> {
   // only writes to well-defined locations (.instar/, .claude/, CLAUDE.md).
   const child = spawn(claudePath, [
     '--dangerously-skip-permissions',
-    `/setup-wizard The project to set up is at: ${projectDir}.${gitContext}${existingContext}`,
+    `/setup-wizard The project to set up is at: ${projectDir}.${gitContext}${detectionContext}`,
   ], {
     cwd: instarRoot,
     stdio: 'inherit',
