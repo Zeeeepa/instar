@@ -32,6 +32,7 @@ import type { TunnelManager } from '../tunnel/TunnelManager.js';
 import type { EvolutionManager } from '../core/EvolutionManager.js';
 import type { SessionWatchdog } from '../monitoring/SessionWatchdog.js';
 import type { MultiMachineCoordinator } from '../core/MultiMachineCoordinator.js';
+import type { TopicMemory } from '../memory/TopicMemory.js';
 import { createRoutes } from './routes.js';
 import { createMachineRoutes } from './machineRoutes.js';
 import { corsMiddleware, authMiddleware, requestTimeout, errorHandler } from './middleware.js';
@@ -64,6 +65,7 @@ export class AgentServer {
     tunnel?: TunnelManager;
     evolution?: EvolutionManager;
     watchdog?: SessionWatchdog;
+    topicMemory?: TopicMemory;
     coordinator?: MultiMachineCoordinator;
     localSigningKeyPem?: string;
   }) {
@@ -183,6 +185,7 @@ export class AgentServer {
       tunnel: options.tunnel ?? null,
       evolution: options.evolution ?? null,
       watchdog: options.watchdog ?? null,
+      topicMemory: options.topicMemory ?? null,
       startTime: this.startTime,
     });
     this.app.use(routes);

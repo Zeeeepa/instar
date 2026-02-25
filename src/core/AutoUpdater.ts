@@ -217,7 +217,10 @@ export class AutoUpdater {
 
       console.log(`[AutoUpdater] Updated: v${result.previousVersion} → v${result.newVersion}`);
 
-      // Step 5: Notify via Telegram (brief, conversational — the upgrade-notify session handles details)
+      // Step 5: Notify via Telegram (brief, conversational)
+      // Don't promise a summary unless an upgrade guide exists for the new version.
+      // Versions without guides in upgrades/ will never trigger the upgrade-notify session,
+      // so promising a summary creates a broken commitment.
       const restartNote = result.restartNeeded && this.config.autoRestart
         ? ' Restarting now to pick up the changes.'
         : result.restartNeeded

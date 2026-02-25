@@ -1,6 +1,6 @@
 {
   "name": "instar",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Persistent autonomy infrastructure for AI agents",
   "type": "module",
   "main": "dist/index.js",
@@ -24,6 +24,7 @@
     "test:all": "vitest run && vitest run --config vitest.integration.config.ts && vitest run --config vitest.e2e.config.ts",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist",
+    "check:upgrade-guide": "node scripts/check-upgrade-guide.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

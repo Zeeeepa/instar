@@ -58,6 +58,10 @@ jobs:
           echo "version=$NEW" >> "$GITHUB_OUTPUT"
           echo "Bumped $CURRENT → $NEW"
 
+      - name: Check upgrade guide
+        run: node scripts/check-upgrade-guide.js
+        continue-on-error: false
+
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:
