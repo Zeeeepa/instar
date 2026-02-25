@@ -889,10 +889,18 @@ program
       });
       const result = migrator.migrate();
 
+      // Read previously-migrated version so we only deliver guides for NEW versions
+      let previousVersion: string | undefined;
+      try {
+        const versionFile = path.join(config.stateDir, 'state', 'last-migrated-version.json');
+        previousVersion = JSON.parse(fs.readFileSync(versionFile, 'utf-8')).version || undefined;
+      } catch { /* first run — no previous version */ }
+
       // Layer 2: Upgrade guide delivery (intelligent knowledge upgrades)
       const guideProcessor = new UpgradeGuideProcessor({
         stateDir: config.stateDir,
         currentVersion: getInstarVersion(),
+        previousVersion,
       });
       const guideResult = guideProcessor.process();
 

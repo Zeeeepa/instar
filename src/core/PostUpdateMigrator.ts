@@ -463,6 +463,17 @@ Strip the \`[telegram:N]\` prefix before interpreting the message. Respond natur
 
   // ── Hook Templates ─────────────────────────────────────────────────
 
+  /**
+   * Get the content of a named hook template.
+   * Used by init.ts to share canonical hook content without duplication.
+   */
+  getHookContent(name: 'session-start' | 'compaction-recovery'): string {
+    switch (name) {
+      case 'session-start': return this.getSessionStartHook();
+      case 'compaction-recovery': return this.getCompactionRecovery();
+    }
+  }
+
   private getSessionStartHook(): string {
     return `#!/bin/bash
 # Session start hook — injects identity context on session lifecycle events.

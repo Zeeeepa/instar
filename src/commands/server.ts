@@ -702,6 +702,7 @@ export async function startServer(options: StartOptions): Promise<void> {
           const guideProcessor = new UpgradeGuideProcessor({
             stateDir: config.stateDir,
             currentVersion: installedVersion,
+            previousVersion: lastMigrated || undefined,
           });
           if (!guideProcessor.hasPendingGuide()) {
             const guideResult = guideProcessor.process();
@@ -1333,7 +1334,9 @@ export async function startServer(options: StartOptions): Promise<void> {
                 prompt: [
                   'IMPORTANT: You are a SHORT-LIVED session with a SPECIFIC task. Do NOT search for files or explore the codebase. Everything you need is in this prompt.',
                   '',
-                  'You have been updated to a new Instar version. Read the upgrade guide below, then do ALL THREE steps:',
+                  'You have been updated to a new Instar version. Read the upgrade guide below, then do ALL THREE steps.',
+                  'IMPORTANT: The guide below contains ONLY what is new in THIS update. Do not mention features from previous updates.',
+                  '',
                   '',
                   '## Step 1: Notify your user',
                   '',

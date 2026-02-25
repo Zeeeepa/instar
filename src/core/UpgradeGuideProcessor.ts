@@ -49,17 +49,22 @@ export interface UpgradeGuideConfig {
   stateDir: string;
   /** Current installed version (to determine which guides are new) */
   currentVersion: string;
+  /** Version the agent upgraded FROM — only guides newer than this are delivered.
+   *  If omitted, falls back to processed-upgrades.json state (legacy behavior). */
+  previousVersion?: string;
 }
 
 export class UpgradeGuideProcessor {
   private stateDir: string;
   private currentVersion: string;
+  private previousVersion: string | null;
   private processedFile: string;
   private pendingGuidePath: string;
 
   constructor(config: UpgradeGuideConfig) {
     this.stateDir = config.stateDir;
     this.currentVersion = config.currentVersion;
+    this.previousVersion = config.previousVersion ?? null;
     this.processedFile = path.join(config.stateDir, 'state', 'processed-upgrades.json');
     this.pendingGuidePath = path.join(config.stateDir, 'state', 'pending-upgrade-guide.md');
   }
@@ -86,15 +91,27 @@ export class UpgradeGuideProcessor {
     }
 
     // Read available guides
-    const availableGuides = this.getAvailableGuides(upgradesDir);
+    let availableGuides = this.getAvailableGuides(upgradesDir);
     if (availableGuides.length === 0) {
       return result;
+    }
+
+    // Filter by previousVersion — only deliver guides for versions the agent
+    // hasn't seen yet. Without this, agents that update across multiple versions
+    // (or whose processed-upgrades.json was lost) get ALL historical guides
+    // concatenated, producing repetitive/confusing announcements.
+    if (this.previousVersion) {
+      const prevVer = this.previousVersion;
+      availableGuides = availableGuides.filter(g => this.compareSemver(g.version, prevVer) > 0);
+      if (availableGuides.length === 0) {
+        return result;
+      }
     }
 
     // Read processed state
     const processed = this.getProcessedVersions();
 
-    // Find unprocessed guides
+    // Find unprocessed guides (among version-filtered set)
     const pending: Array<{ version: string; filePath: string }> = [];
     for (const guide of availableGuides) {
       if (processed.includes(guide.version)) {

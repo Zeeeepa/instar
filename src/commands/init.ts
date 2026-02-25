@@ -37,6 +37,7 @@ import { ensurePrerequisites } from '../core/Prerequisites.js';
 import { allocatePort, registerAgent, validateAgentName } from '../core/AgentRegistry.js';
 import { defaultIdentity } from '../scaffold/bootstrap.js';
 import { MachineIdentityManager, ensureGitignore } from '../core/MachineIdentity.js';
+import { PostUpdateMigrator } from '../core/PostUpdateMigrator.js';
 import {
   generateAgentMd,
   generateUserMd,
@@ -1757,115 +1758,13 @@ function installHooks(stateDir: string): void {
   fs.mkdirSync(hooksDir, { recursive: true });
 
   // Session start hook — fires on startup, resume, clear, compact
-  // Outputs identity content directly so the agent knows who it is immediately.
-  fs.writeFileSync(path.join(hooksDir, 'session-start.sh'), `#!/bin/bash
-# Session start hook — injects identity context on session lifecycle events.
-# Fires on: startup, resume, clear, compact (via SessionStart hook type)
-#
-# On startup/resume: outputs a compact identity summary
-# On compact: delegates to compaction-recovery.sh for full injection
-INSTAR_DIR="\${CLAUDE_PROJECT_DIR:-.}/.instar"
-EVENT="\${CLAUDE_HOOK_MATCHER:-startup}"
-
-# On compaction, delegate to the dedicated recovery hook
-if [ "\$EVENT" = "compact" ]; then
-  if [ -x "$INSTAR_DIR/hooks/compaction-recovery.sh" ]; then
-    exec bash "$INSTAR_DIR/hooks/compaction-recovery.sh"
-  fi
-fi
-
-# For startup/resume/clear — output a compact orientation
-echo "=== SESSION START ==="
-
-# Telegram-spawned session awareness
-# When auto-created for a Telegram topic, prime the agent to respond immediately
-if [ -n "\$INSTAR_TELEGRAM_TOPIC" ]; then
-  echo ""
-  echo "This session was auto-spawned for Telegram topic \$INSTAR_TELEGRAM_TOPIC."
-  echo "A message from your user triggered this session and will arrive momentarily."
-  echo "IMMEDIATELY acknowledge it via your Telegram relay — they are waiting."
-fi
-
-# Identity summary (first 20 lines of AGENT.md — enough for name + role)
-if [ -f "$INSTAR_DIR/AGENT.md" ]; then
-  echo ""
-  AGENT_NAME=\$(head -1 "$INSTAR_DIR/AGENT.md" | sed 's/^# //')
-  echo "Identity: \$AGENT_NAME"
-  # Output personality and principles sections
-  sed -n '/^## Personality/,/^## [^P]/p' "$INSTAR_DIR/AGENT.md" 2>/dev/null | head -10
-fi
-
-# Key files
-echo ""
-echo "Key files:"
-[ -f "$INSTAR_DIR/AGENT.md" ] && echo "  .instar/AGENT.md — Your identity (read for full context)"
-[ -f "$INSTAR_DIR/USER.md" ] && echo "  .instar/USER.md — Your collaborator"
-[ -f "$INSTAR_DIR/MEMORY.md" ] && echo "  .instar/MEMORY.md — Persistent learnings"
-
-# Relationship count
-if [ -d "$INSTAR_DIR/relationships" ]; then
-  REL_COUNT=\$(ls -1 "$INSTAR_DIR/relationships"/*.json 2>/dev/null | wc -l | tr -d ' ')
-  [ "\$REL_COUNT" -gt "0" ] && echo "  \${REL_COUNT} tracked relationships in .instar/relationships/"
-fi
-
-# Server status + feature discovery
-if [ -f "$INSTAR_DIR/config.json" ]; then
-  PORT=\$(python3 -c "import json; print(json.load(open('$INSTAR_DIR/config.json')).get('port', 4040))" 2>/dev/null || echo "4040")
-  AUTH=\$(python3 -c "import json; print(json.load(open('$INSTAR_DIR/config.json')).get('authToken',''))" 2>/dev/null)
-  HEALTH=\$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:\${PORT}/health" 2>/dev/null)
-  if [ "\$HEALTH" = "200" ]; then
-    echo ""
-    echo "Instar server: RUNNING on port \${PORT}"
-    echo ""
-    # Query capabilities and output a compact feature summary
-    CAPS=\$(curl -s -H "Authorization: Bearer \${AUTH}" "http://localhost:\${PORT}/capabilities" 2>/dev/null)
-    if [ -n "\$CAPS" ]; then
-      echo "Your capabilities (use these proactively — don't wait for the user to ask):"
-      # Parse key features with python
-      python3 -c "
-import json, sys
-try:
-    c = json.loads('''$CAPS'''.replace(\"'\", ''))
-except:
-    c = json.loads(sys.stdin.read()) if not sys.stdin.isatty() else {}
-features = []
-if c.get('telegram', {}).get('bidirectional'): features.append('Telegram (bidirectional messaging)')
-if c.get('scheduler', {}).get('enabled'):
-    slugs = c.get('scheduler', {}).get('jobSlugs', [])
-    features.append(f'Job Scheduler ({len(slugs)} jobs)')
-if c.get('relationships', {}).get('count', 0) > 0:
-    features.append(f'Relationships ({c[\"relationships\"][\"count\"]} tracked)')
-if c.get('publishing', {}).get('enabled'): features.append('Telegraph Publishing (public pages)')
-if c.get('privateViewer', {}).get('enabled'): features.append('Private Viewer (auth-gated HTML pages)')
-if c.get('tunnel', {}).get('running'): features.append(f'Cloudflare Tunnel ({c[\"tunnel\"].get(\"url\", \"active\")})')
-elif c.get('tunnel', {}).get('enabled'): features.append('Cloudflare Tunnel (configured, not running)')
-if c.get('evolution', {}).get('enabled'): features.append('Evolution System (proposals, learnings, gaps, actions)')
-if c.get('dispatches', {}).get('enabled'): features.append('Dispatch System (receive behavioral updates)')
-if c.get('updates', {}).get('autoUpdate'): features.append('Auto-Updater (checks for new versions)')
-features.append('Attention Queue (signal items to user)')
-features.append('Skip Ledger (avoid re-processing)')
-features.append('Feedback System (report bugs/features upstream)')
-features.append('CI Health (check GitHub Actions)')
-for f in features:
-    print(f'  - {f}')
-" 2>/dev/null <<< "\$CAPS"
-      echo ""
-      echo "Proactive guidance: When the user mentions documents → use Private Viewer."
-      echo "When they repeat a task → suggest creating a job. When something needs"
-      echo "attention later → use the Attention Queue. You are the user's guide."
-    fi
-  else
-    echo ""
-    echo "Instar server: NOT RUNNING (port \${PORT})"
-    echo "Start it with: instar server start"
-  fi
-fi
-
-echo ""
-echo "IMPORTANT: To report bugs or request features, use POST /feedback on your local server."
-echo "IMPORTANT: Before claiming you lack a capability, check /capabilities first."
-echo "=== END SESSION START ==="
-`, { mode: 0o755 });
+  // Canonical version kept in sync with PostUpdateMigrator.getSessionStartHook().
+  // PostUpdateMigrator overwrites this on first auto-update, but we want first-install
+  // to have the same quality as updated agents.
+  const migrator = new PostUpdateMigrator(
+    { stateDir, port: 4040, sessions: { claudePath: 'claude' } } as any
+  );
+  fs.writeFileSync(path.join(hooksDir, 'session-start.sh'), migrator.getHookContent('session-start'), { mode: 0o755 });
 
   // Dangerous command guard — supports safety levels 1 (ask user) and 2 (self-verify)
   fs.writeFileSync(path.join(hooksDir, 'dangerous-command-guard.sh'), `#!/bin/bash
@@ -1923,153 +1822,9 @@ if echo "$INPUT" | grep -qE "(telegram-reply|send-email|send-message|POST.*/tele
 fi
 `, { mode: 0o755 });
 
-  // Compaction recovery — The 164th Lesson: advisory hooks get ignored.
-  // Automatic content injection removes the compliance gap entirely.
-  // Rather than saying "read AGENT.md", we OUTPUT the content directly.
-  // Enhanced: also re-injects topic context, Telegram relay, and capabilities.
-  fs.writeFileSync(path.join(hooksDir, 'compaction-recovery.sh'), `#!/bin/bash
-# Compaction recovery — re-injects identity AND topic context when Claude's context compresses.
-# Born from Dawn's 164th Lesson: "Advisory hooks get ignored. Automatic content
-# injection removes the compliance gap entirely."
-#
-# This hook OUTPUTS identity content directly into context rather than just
-# pointing to files. After compaction, the agent needs to KNOW who it is
-# AND what conversation it's in — not be told where to look.
-#
-# Context priority (same as session-start):
-#   1. Topic context (summary + recent messages) — what are we working on?
-#   2. Identity (AGENT.md) — who am I?
-#   3. Memory (MEMORY.md) — what have I learned?
-#   4. Telegram relay — how do I respond?
-#   5. Capabilities — what can I do?
-INSTAR_DIR="\${CLAUDE_PROJECT_DIR:-.}/.instar"
+  // Compaction recovery — shared from PostUpdateMigrator (single source of truth).
+  fs.writeFileSync(path.join(hooksDir, 'compaction-recovery.sh'), migrator.getHookContent('compaction-recovery'), { mode: 0o755 });
 
-echo "=== IDENTITY RECOVERY (post-compaction) ==="
-
-# ── 1. TOPIC CONTEXT (highest priority — what are we working on?) ──
-if [ -n "\$INSTAR_TELEGRAM_TOPIC" ]; then
-  TOPIC_ID="\$INSTAR_TELEGRAM_TOPIC"
-  CONFIG_FILE="\$INSTAR_DIR/config.json"
-  if [ -f "\$CONFIG_FILE" ]; then
-    PORT=\$(grep -o '"port":[0-9]*' "\$CONFIG_FILE" | head -1 | cut -d':' -f2)
-    if [ -n "\$PORT" ]; then
-      TOPIC_CTX=\$(curl -s "http://localhost:\${PORT}/topic/context/\${TOPIC_ID}?recent=20" 2>/dev/null)
-      if [ -n "\$TOPIC_CTX" ] && echo "\$TOPIC_CTX" | grep -q '"totalMessages"'; then
-        TOTAL=\$(echo "\$TOPIC_CTX" | grep -o '"totalMessages":[0-9]*' | cut -d':' -f2)
-        TOPIC_NAME=\$(echo "\$TOPIC_CTX" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('topicName') or 'Unknown')" 2>/dev/null || echo "Unknown")
-
-        echo ""
-        echo "--- CONVERSATION CONTEXT (Topic: \${TOPIC_NAME}, \${TOTAL} total messages) ---"
-        echo ""
-
-        SUMMARY=\$(echo "\$TOPIC_CTX" | python3 -c "import sys,json; d=json.load(sys.stdin); s=d.get('summary'); print(s if s else '')" 2>/dev/null)
-        if [ -n "\$SUMMARY" ]; then
-          echo "SUMMARY OF CONVERSATION SO FAR:"
-          echo "\$SUMMARY"
-          echo ""
-        fi
-
-        echo "RECENT MESSAGES:"
-        echo "\$TOPIC_CTX" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for m in d.get('recentMessages', []):
-    sender = 'User' if m.get('fromUser') else 'Agent'
-    ts = m.get('timestamp', '')[:16].replace('T', ' ')
-    text = m.get('text', '')
-    if len(text) > 500:
-        text = text[:500] + '...'
-    print(f'[{ts}] {sender}: {text}')
-" 2>/dev/null
-        echo ""
-        echo "Search past conversations: curl http://localhost:\${PORT}/topic/search?topic=\${TOPIC_ID}&q=QUERY"
-        echo "--- END CONVERSATION CONTEXT ---"
-        echo ""
-      fi
-    fi
-  fi
-fi
-
-# ── 2. IDENTITY (full AGENT.md) ──
-if [ -f "\$INSTAR_DIR/AGENT.md" ]; then
-  echo ""
-  echo "--- Your Identity (from .instar/AGENT.md) ---"
-  cat "\$INSTAR_DIR/AGENT.md"
-  echo ""
-  echo "--- End Identity ---"
-fi
-
-# ── 3. MEMORY (first 50 lines) ──
-if [ -f "\$INSTAR_DIR/MEMORY.md" ]; then
-  LINES=\$(wc -l < "\$INSTAR_DIR/MEMORY.md" | tr -d ' ')
-  echo ""
-  echo "--- Your Memory (.instar/MEMORY.md — \${LINES} lines, showing first 50) ---"
-  head -50 "\$INSTAR_DIR/MEMORY.md"
-  if [ "\$LINES" -gt 50 ]; then
-    echo "... (\$((LINES - 50)) more lines — read full file if needed)"
-  fi
-  echo "--- End Memory ---"
-fi
-
-# ── 4. TELEGRAM RELAY ──
-if [ -n "\$INSTAR_TELEGRAM_TOPIC" ]; then
-  TOPIC_ID="\$INSTAR_TELEGRAM_TOPIC"
-  RELAY_SCRIPT=""
-  if [ -f "\$INSTAR_DIR/scripts/telegram-reply.sh" ]; then
-    RELAY_SCRIPT=".instar/scripts/telegram-reply.sh"
-  elif [ -f "\${CLAUDE_PROJECT_DIR:-.}/.claude/scripts/telegram-reply.sh" ]; then
-    RELAY_SCRIPT=".claude/scripts/telegram-reply.sh"
-  fi
-
-  echo ""
-  echo "--- TELEGRAM SESSION (topic \${TOPIC_ID}) ---"
-  echo "This session is connected to Telegram topic \${TOPIC_ID}."
-  echo "Messages arrive prefixed with [telegram:\${TOPIC_ID}]. Strip prefix before interpreting."
-  echo "After EVERY response, relay your text back:"
-  if [ -n "\$RELAY_SCRIPT" ]; then
-    echo "  cat <<'EOF' | \${RELAY_SCRIPT} \${TOPIC_ID}"
-  else
-    echo "  cat <<'EOF' | .instar/scripts/telegram-reply.sh \${TOPIC_ID}"
-  fi
-  echo "  Your response text here"
-  echo "  EOF"
-  echo "--- END TELEGRAM SESSION ---"
-fi
-
-# ── 5. SERVER STATUS + CAPABILITIES ──
-CONFIG_FILE="\$INSTAR_DIR/config.json"
-if [ -f "\$CONFIG_FILE" ]; then
-  PORT=\$(python3 -c "import json; print(json.load(open('\$CONFIG_FILE')).get('port', 4040))" 2>/dev/null || echo "4040")
-  HEALTH=\$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:\${PORT}/health" 2>/dev/null)
-  if [ "\$HEALTH" = "200" ]; then
-    echo ""
-    echo "Instar server: RUNNING on port \${PORT}"
-    CAPS=\$(curl -s "http://localhost:\${PORT}/capabilities" 2>/dev/null)
-    if echo "\$CAPS" | grep -q '"featureGuide"' 2>/dev/null; then
-      echo ""
-      echo "--- YOUR CAPABILITIES ---"
-      echo "\$CAPS" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    guide = d.get('featureGuide', {})
-    for t in guide.get('triggers', []):
-        print(f'  When: {t[\"context\"]}')
-        print(f'  Do:   {t[\"action\"]}')
-        print()
-except: pass
-" 2>/dev/null
-      echo "--- END CAPABILITIES ---"
-    fi
-  else
-    echo ""
-    echo "Instar server: NOT RUNNING (port \${PORT})"
-  fi
-fi
-
-echo ""
-echo "=== END IDENTITY RECOVERY ==="
-`, { mode: 0o755 });
 
   // Deferral detector — catches agents deferring work they could do themselves.
   // PreToolUse hook for Bash. Scans outgoing communication for deferral patterns.
