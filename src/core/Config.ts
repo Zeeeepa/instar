@@ -262,6 +262,9 @@ export function loadConfig(projectDir?: string): InstarConfig {
       feedbackFile: path.join(stateDir, 'feedback.json'),
       ...fileConfig.feedback,
     },
+    dispatches: fileConfig.dispatches,
+    updates: fileConfig.updates,
+    publishing: fileConfig.publishing,
     tunnel: fileConfig.tunnel,
     agentType: resolvedProjectDir.startsWith(standaloneAgentsDir())
       ? 'standalone'
