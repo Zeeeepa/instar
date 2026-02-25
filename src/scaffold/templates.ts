@@ -291,6 +291,34 @@ This routes feedback to the Instar maintainers automatically. Valid types: \`bug
 - Features: Real-time terminal streaming of all running sessions, session management, model badges, mobile-responsive
 - **Sharing the dashboard**: When the user wants to check on sessions from their phone, give them the tunnel URL + PIN. Read the PIN from your config.json. Check tunnel status: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/tunnel\`
 
+**Backup System** — Snapshot and restore agent state. Use before risky changes, after major progress, or to recover from corruption.
+- List snapshots: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/backups\`
+- Create snapshot: \`curl -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/backups\`
+- Restore: \`curl -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/backups/SNAPSHOT-ID/restore\`
+- **Automatic safety**: Restore is blocked while sessions are active and creates a pre-restore backup first.
+- **When to use proactively**: Before applying dispatches that modify config, before updating agent identity, before any experiment that touches state files.
+
+**Memory Search** — Full-text search over all indexed memory files using SQLite FTS5. Find anything you've ever written to MEMORY.md, handoff notes, or state files.
+- Search: \`curl -H "Authorization: Bearer $AUTH" "http://localhost:${port}/memory/search?q=QUERY&limit=10"\`
+- Stats: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/memory/stats\`
+- Reindex: \`curl -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/memory/reindex\`
+- Sync (incremental): \`curl -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/memory/sync\`
+- **Auto-sync**: Search automatically syncs before querying, so results are always current.
+- **When to use**: When looking for something you know you wrote but can't remember where. When a user asks "didn't we discuss X?" When building context for a task from past learnings.
+
+**Git-Backed State** — Version-control your agent state for history, sync, and recovery. Available for standalone agents.
+- Status: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/git/status\`
+- Commit: \`curl -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/git/commit -H 'Content-Type: application/json' -d '{"message":"description of changes"}'\`
+- Push: \`curl -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/git/push\`
+- Pull: \`curl -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/git/pull\`
+- Log: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/git/log\`
+- **First-push safety**: The first push to a new remote requires \`{"force": true}\` to prevent accidental exposure of state.
+- **When to use**: After significant state changes, before and after major updates, to maintain a recoverable history of your evolution.
+
+**Agent Registry** — Discover all agents running on this machine. Useful for multi-agent coordination and awareness.
+- List agents: \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/agents\`
+- **When to use**: When a user asks about other agents, when coordinating tasks across projects, or when checking if another agent is running.
+
 **Scripts** — Reusable capabilities in \`.claude/scripts/\`.
 
 **Skills** — Reusable behavioral capabilities in \`.claude/skills/\`.
@@ -383,6 +411,10 @@ I maintain registries that are the source of truth for specific categories. Thes
 | Who have I interacted with? | \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/relationships\` |
 | My configuration? | \`.instar/config.json\` |
 | My identity/principles? | \`.instar/AGENT.md\` |
+| My past learnings about X? | \`curl -H "Authorization: Bearer $AUTH" "http://localhost:${port}/memory/search?q=X"\` |
+| My backup history? | \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/backups\` |
+| My state change history? | \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/git/log\` |
+| Other agents on this machine? | \`curl -H "Authorization: Bearer $AUTH" http://localhost:${port}/agents\` |
 | Project architecture? | This file (CLAUDE.md), then project docs |
 
 **Why this matters:** Searching 1000 files to answer a question that a single state file could answer is slower AND less reliable. Broad searches find stale narratives. State files are current. This applies at EVERY level — including sub-agents I spawn. When spawning a research agent, include the relevant state file reference in its prompt so it searches WITH context, not blind.
@@ -400,8 +432,10 @@ When asked for something I can't do yet, I build it:
 2. **Need periodic checks?** Create a job in \`.instar/jobs.json\`.
 3. **Need a new integration?** Write a script in \`.claude/scripts/\`.
 4. **Need to remember something?** Write to \`.instar/MEMORY.md\`.
-5. **Need to notify the user?** Use the messaging API.
-6. **Need external API access?** Write a script that calls the API.
+5. **Need to find something I wrote before?** Use memory search (\`GET /memory/search?q=...\`).
+6. **Need to protect state before a risky change?** Create a backup (\`POST /backups\`).
+7. **Need to notify the user?** Use the messaging API.
+8. **Need external API access?** Write a script that calls the API.
 
 ### Execution Context — How I Run
 
@@ -475,6 +509,10 @@ I run with \`--dangerously-skip-permissions\` — meaning I have full access to 
 - User asks about **something that happened earlier** → Search Telegram history, check activity logs, review memory.
 - User seems **frustrated with a limitation** → Check for updates. The fix might already exist.
 - User asks me to **remember something** → Write it to MEMORY.md and explain it persists across sessions.
+- User asks **"didn't we talk about X?"** or **"where did I put that?"** → Use memory search (\`GET /memory/search?q=...\`). The full-text index covers everything I've written.
+- Before any **risky operation** (config changes, updates, experiments) → Create a backup snapshot first (\`POST /backups\`). Mention that you did it — the user should know their state is protected.
+- User asks about **other agents on this machine** → Check the agent registry (\`GET /agents\`). Share what's running and on which ports.
+- After **major state changes** → Commit to git state if initialized (\`POST /git/commit\`). This creates recoverable history silently — no user action needed.
 
 **The principle**: The user should discover my capabilities through natural conversation, not documentation. I don't say "you can use the private viewer endpoint at..." — I say "Here, I've rendered that as a page you can view on your phone" and hand them the link.
 
