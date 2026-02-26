@@ -610,13 +610,16 @@ export class TelegramLifeline {
   private async notifyCircuitBroken(totalFailures: number, lastCrashOutput: string): Promise<void> {
     const topicId = this.lifelineTopicId ?? 1;
     const crashSnippet = lastCrashOutput
-      ? `\n\nLast crash output:\n${lastCrashOutput.slice(-300)}`
+      ? `\n\nLast crash output:\n\`\`\`\n${lastCrashOutput.slice(-500)}\n\`\`\``
       : '';
+    const investigateHint = lastCrashOutput
+      ? 'Check the crash output above for the root cause.'
+      : 'No crash output was captured. Check the server logs after resetting.';
     await this.sendToTopic(topicId,
       `CIRCUIT BREAKER TRIPPED\n\n` +
       `Server failed ${totalFailures} times in the last hour. Auto-restart has been disabled to prevent resource waste.` +
       crashSnippet +
-      `\n\nTo investigate: check the crash output above.\n` +
+      `\n\n${investigateHint}\n` +
       `To retry: /lifeline reset (resets circuit breaker and restarts)`
     ).catch(() => {});
   }

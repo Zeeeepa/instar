@@ -38,7 +38,7 @@ export class ServerSupervisor extends EventEmitter {
   private restartBackoffMs = 5000;
   private isRunning = false;
   private lastHealthy = 0;
-  private startupGraceMs = 20_000; // 20 seconds grace period after spawn before health checks
+  private startupGraceMs = 90_000; // 90 seconds grace period — allows time for native module auto-rebuild on first start
   private spawnedAt = 0;
   private retryCooldownMs = 5 * 60_000; // 5 minutes cooldown after max retries exhausted
   private maxRetriesExhaustedAt = 0;
