@@ -974,6 +974,8 @@ export interface InstarConfig {
     remote?: string;
     /** Auto-push after commits (default: true) */
     autoPush?: boolean;
+    /** How often to run the git-sync job in minutes (default: 60). Set to 0 to disable. */
+    syncIntervalMinutes?: number;
   };
   /** Update configuration */
   updates?: UpdateConfig;

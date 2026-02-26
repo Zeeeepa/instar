@@ -290,6 +290,9 @@ async function initFreshProject(projectName: string, options: InitOptions): Prom
   installSmartFetch(projectDir);
   console.log(`  ${pc.green('✓')} Created .claude/scripts/smart-fetch.py (agentic web conventions)`);
 
+  installGitSyncGate(projectDir);
+  console.log(`  ${pc.green('✓')} Created .claude/scripts/git-sync-gate.sh (git sync pre-screening)`);
+
   // Create .claude/skills/ directory and install built-in skills
   const skillsDir = path.join(projectDir, '.claude', 'skills');
   fs.mkdirSync(skillsDir, { recursive: true });
@@ -580,6 +583,10 @@ async function initExistingProject(options: InitOptions): Promise<void> {
   // Install smart-fetch for agentic web conventions
   installSmartFetch(projectDir);
   console.log(pc.green('  Created:') + ' .claude/scripts/smart-fetch.py (agentic web conventions)');
+
+  // Install git-sync gate script
+  installGitSyncGate(projectDir);
+  console.log(pc.green('  Created:') + ' .claude/scripts/git-sync-gate.sh (git sync pre-screening)');
 
   // Create .claude/skills/ directory and install built-in skills
   const skillsDir = path.join(projectDir, '.claude', 'skills');
@@ -2021,6 +2028,69 @@ Exit silently if continuity is healthy.`,
       },
       tags: ['coherence', 'default', 'guardian'],
     },
+    {
+      slug: 'git-sync',
+      name: 'Git Sync',
+      description: 'Intelligent multi-machine git synchronization. Pulls remote changes, merges with conflict resolution, commits local changes, and pushes. Uses tiered model selection: haiku for clean syncs, sonnet for state file conflicts, opus for code conflicts.',
+      schedule: '0 * * * *',
+      priority: 'high',
+      expectedDurationMinutes: 5,
+      model: 'haiku',
+      enabled: false,
+      gate: 'bash .claude/scripts/git-sync-gate.sh',
+      execute: {
+        type: 'prompt',
+        value: `You are running a periodic git sync. Your job is to synchronize this machine's state with the remote repository intelligently.
+
+## Pre-flight
+
+1. Check conflict severity: \`cat /tmp/instar-git-sync-severity 2>/dev/null || echo "clean"\`
+2. Run: \`git status --short\` and \`git log --oneline -3\` to understand current state
+3. Run: \`git fetch origin && git rev-list --left-right --count HEAD...@{u}\` to see ahead/behind
+
+## Sync Strategy
+
+### If only behind (remote has new commits, no local changes):
+- \`git pull --rebase\`
+- Report what was pulled
+
+### If only ahead (local changes, nothing new on remote):
+- \`git add -A\`
+- Compose a brief sync commit message categorizing the changes (state, config, skills, code, etc.)
+- \`git commit\` then \`git push\`
+
+### If both (changes on both sides):
+- First commit local changes: \`git add -A && git commit -m "sync: local changes"\`
+- Then pull with rebase: \`git pull --rebase\`
+- If conflicts arise, resolve them:
+  - **JSON state files** (.instar/state/, activity caches, session data): Take newer timestamps, union arrays by ID, max counters
+  - **Memory/identity files** (MEMORY.md, AGENT.md): Merge content — keep additions from both sides
+  - **Code files** (.ts, .js, .py): Review carefully, understand both changes, merge semantically
+  - **Config files**: Preserve local machine-specific values, take newer shared settings
+- After resolving: \`git add . && git rebase --continue\`
+- Then push: \`git push\`
+
+### If clean (gate passed but nothing obvious):
+- The gate detected something — re-check with \`git status\` and \`git fetch\`
+- If truly nothing: report "sync check complete, nothing to do"
+
+## Reporting
+
+- If nothing happened: exit silently (no message needed)
+- If changes synced cleanly: brief one-line summary ("Pulled 3 commits, pushed 2")
+- If conflicts were resolved: describe what conflicted and how you resolved it
+- If conflicts could NOT be resolved: report the conflict details and leave the working tree clean (abort rebase if needed)
+
+## Important
+
+- NEVER force push
+- NEVER delete branches
+- If a rebase goes wrong, \`git rebase --abort\` and report the issue
+- Prefer clean history (rebase) over merge commits when possible`,
+      },
+      tags: ['infrastructure', 'default'],
+      telegramNotify: false,
+    },
   ];
 }
 
@@ -2109,6 +2179,9 @@ function refreshScripts(projectDir: string, stateDir: string): void {
 
   // Always install smart-fetch.py (agentic web conventions)
   installSmartFetch(projectDir);
+
+  // Always install git-sync-gate.sh (pre-screening for git-sync job)
+  installGitSyncGate(projectDir);
 }
 
 /**
@@ -2385,6 +2458,78 @@ echo "[\$(date -Iseconds)] Server restart initiated"
 `;
 
   fs.writeFileSync(path.join(scriptsDir, 'health-watchdog.sh'), scriptContent, { mode: 0o755 });
+}
+
+/**
+ * Install git-sync-gate.sh — zero-token pre-screening for the git-sync job.
+ * Checks if a sync is needed before spawning a Claude session.
+ * Also classifies conflict severity for tiered model selection.
+ */
+function installGitSyncGate(projectDir: string): void {
+  const scriptsDir = path.join(projectDir, '.claude', 'scripts');
+  fs.mkdirSync(scriptsDir, { recursive: true });
+
+  const scriptPath = path.join(scriptsDir, 'git-sync-gate.sh');
+
+  const content = [
+    '#!/bin/bash',
+    '# Git Sync Gate — zero-token pre-screening for the git-sync job.',
+    '# Exit 0 = sync needed (proceed), exit 1 = nothing to sync (skip).',
+    '# Writes conflict severity to /tmp/instar-git-sync-severity for model tier selection.',
+    '',
+    'SEVERITY_FILE="/tmp/instar-git-sync-severity"',
+    'echo "clean" > "$SEVERITY_FILE"',
+    '',
+    '# Must be in a git repo',
+    '[ ! -d ".git" ] && exit 1',
+    '',
+    '# Check for local changes',
+    'LOCAL_CHANGES=$(git status --porcelain 2>/dev/null | head -1)',
+    '',
+    '# Fetch remote (with timeout)',
+    'git fetch origin --quiet 2>/dev/null &',
+    'FETCH_PID=$!',
+    '( sleep 10 && kill "$FETCH_PID" 2>/dev/null ) &',
+    'wait "$FETCH_PID" 2>/dev/null',
+    '',
+    '# Check for remote changes',
+    'TRACKING=$(git rev-parse --abbrev-ref "@{u}" 2>/dev/null)',
+    'BEHIND=0',
+    'AHEAD=0',
+    'if [ -n "$TRACKING" ]; then',
+    '  AB=$(git rev-list --left-right --count "HEAD...$TRACKING" 2>/dev/null)',
+    '  BEHIND=$(echo "$AB" | awk \'{print $1}\')',
+    '  AHEAD=$(echo "$AB" | awk \'{print $2}\')',
+    'fi',
+    '',
+    '# Nothing to do — clean and in sync',
+    'if [ -z "$LOCAL_CHANGES" ] && [ "${BEHIND:-0}" -eq "0" ] && [ "${AHEAD:-0}" -eq "0" ]; then',
+    '  exit 1',
+    'fi',
+    '',
+    '# Both sides have changes — check for potential conflicts',
+    'if [ -n "$LOCAL_CHANGES" ] && [ "${BEHIND:-0}" -gt "0" ]; then',
+    '  # Try a merge-tree to detect conflicts without modifying working tree',
+    '  MERGE_BASE=$(git merge-base HEAD "$TRACKING" 2>/dev/null)',
+    '  if [ -n "$MERGE_BASE" ]; then',
+    '    MERGE_OUT=$(git merge-tree "$MERGE_BASE" HEAD "$TRACKING" 2>/dev/null)',
+    '    if echo "$MERGE_OUT" | grep -q "<<<<<<"; then',
+    '      # Classify: code vs state',
+    '      if echo "$MERGE_OUT" | grep -E "\\.(ts|tsx|js|jsx|py|rs|go|md)$" | grep -q "<<<<<<"; then',
+    '        echo "code" > "$SEVERITY_FILE"',
+    '      else',
+    '        echo "state" > "$SEVERITY_FILE"',
+    '      fi',
+    '    fi',
+    '  fi',
+    'fi',
+    '',
+    '# Sync is needed',
+    'exit 0',
+    '',
+  ].join('\n');
+
+  fs.writeFileSync(scriptPath, content, { mode: 0o755 });
 }
 
 /**

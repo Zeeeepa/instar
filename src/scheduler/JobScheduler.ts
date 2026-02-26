@@ -10,6 +10,7 @@
 
 import { Cron } from 'croner';
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import { loadJobs } from './JobLoader.js';
 import { SkipLedger } from './SkipLedger.js';
 import { classifySessionDeath } from '../monitoring/QuotaExhaustionDetector.js';
@@ -312,6 +313,9 @@ export class JobScheduler {
     const prompt = this.buildPrompt(job);
     const sessionName = `job-${job.slug}-${Date.now().toString(36)}`;
 
+    // Check for gate-written model escalation (e.g., git-sync severity)
+    const model = this.resolveModelTier(job);
+
     // Write active-job.json BEFORE spawning so the session-start and
     // compaction-recovery hooks can inject job-specific grounding context.
     this.state.set('active-job', {
@@ -328,7 +332,7 @@ export class JobScheduler {
     this.sessionManager.spawnSession({
       name: sessionName,
       prompt,
-      model: job.model,
+      model,
       jobSlug: job.slug,
       triggeredBy: `scheduler:${reason}`,
       maxDurationMinutes: job.expectedDurationMinutes,
@@ -374,6 +378,28 @@ export class JobScheduler {
 
       this.alertOnConsecutiveFailures(job, failures, errorMsg);
     });
+  }
+
+  /**
+   * Resolve the model tier for a job. Normally uses the job's configured model,
+   * but gates can write a severity file to escalate the model for complex work.
+   *
+   * The git-sync gate writes to /tmp/instar-git-sync-severity:
+   * - "clean" → use configured model (haiku)
+   * - "state" → escalate to sonnet (structured conflict resolution)
+   * - "code"  → escalate to opus (semantic code merge)
+   */
+  private resolveModelTier(job: JobDefinition): typeof job.model {
+    if (job.slug === 'git-sync') {
+      try {
+        const severity = fs.readFileSync('/tmp/instar-git-sync-severity', 'utf-8').trim();
+        if (severity === 'code') return 'opus';
+        if (severity === 'state') return 'sonnet';
+      } catch {
+        // @silent-fallback-ok — severity file missing, use default model
+      }
+    }
+    return job.model;
   }
 
   private buildPrompt(job: JobDefinition): string {

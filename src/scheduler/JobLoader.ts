@@ -24,6 +24,7 @@ const GROUNDING_EXEMPT_SLUGS: ReadonlySet<string> = new Set([
   'dispatch-check',
   'update-check',
   'project-map-refresh',
+  'git-sync',
 ]);
 
 /**
