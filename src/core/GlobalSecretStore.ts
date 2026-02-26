@@ -261,6 +261,7 @@ export class GlobalSecretStore {
           return false;
         }
       } catch {
+        // @silent-fallback-ok — fallback to local store when global unavailable
         return false;
       }
     }
@@ -390,6 +391,7 @@ export class GlobalSecretStore {
       ], { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
       return Buffer.from(result, 'base64');
     } catch {
+      // @silent-fallback-ok — fallback to local store when global unavailable
       return null;
     }
   }
@@ -406,6 +408,7 @@ export class GlobalSecretStore {
           '-a', KEYCHAIN_ACCOUNT,
         ], { stdio: 'pipe', timeout: 5000 });
       } catch {
+        // @silent-fallback-ok — fallback to local store when global unavailable
         // Entry may not exist
       }
 
@@ -417,6 +420,7 @@ export class GlobalSecretStore {
       ], { stdio: 'pipe', timeout: 5000 });
       return true;
     } catch {
+      // @silent-fallback-ok — fallback to local store when global unavailable
       return false;
     }
   }

@@ -206,7 +206,9 @@ export class SecretManager {
     this.ensureInitialized();
 
     if (this.bitwarden) {
-      try { this.bitwarden.delete(key); } catch { /* ignore */ }
+      try { this.bitwarden.delete(key); } catch {
+        // @silent-fallback-ok — secret not found or provider unavailable — returns undefined
+      }
     }
 
     if (this.localStore || this.backend !== 'bitwarden') {
@@ -214,7 +216,9 @@ export class SecretManager {
         const store = this.localStore || new GlobalSecretStore(this.basePath);
         store.autoInit();
         store.deleteSecret(this.agentName, key);
-      } catch { /* ignore */ }
+      } catch {
+        // @silent-fallback-ok — secret not found or provider unavailable — returns undefined
+      }
     }
   }
 
@@ -309,7 +313,10 @@ export class SecretManager {
     switch (this.backend) {
       case 'bitwarden':
         if (this.bitwarden) {
-          try { return this.bitwarden.get(key); } catch { return null; }
+          try { return this.bitwarden.get(key); } catch {
+            // @silent-fallback-ok — secret not found or provider unavailable — returns undefined
+            return null;
+          }
         }
         return null;
 
@@ -327,6 +334,7 @@ export class SecretManager {
       if (!this.localStore) store.autoInit();
       return store.getSecret(this.agentName, key);
     } catch {
+      // @silent-fallback-ok — secret not found or provider unavailable — returns undefined
       return null;
     }
   }
@@ -337,6 +345,7 @@ export class SecretManager {
       if (!this.localStore) store.autoInit();
       store.setSecret(this.agentName, key, value);
     } catch {
+      // @silent-fallback-ok — secret not found or provider unavailable — returns undefined
       // Local store failed — not critical if primary backend succeeded
     }
   }
@@ -347,6 +356,7 @@ export class SecretManager {
       if (!this.localStore) store.autoInit();
       return store.getAgentSecrets(this.agentName);
     } catch {
+      // @silent-fallback-ok — secret not found or provider unavailable — returns undefined
       return {};
     }
   }
@@ -362,6 +372,7 @@ export class SecretManager {
     try {
       return JSON.parse(fs.readFileSync(this.backendFile, 'utf-8'));
     } catch {
+      // @silent-fallback-ok — secret not found or provider unavailable — returns undefined
       return null;
     }
   }

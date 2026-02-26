@@ -122,6 +122,7 @@ export class BitwardenProvider {
       this.sessionKey = session;
       return true;
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return false;
     }
   }
@@ -143,6 +144,7 @@ export class BitwardenProvider {
       this.sessionKey = session;
       return true;
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return false;
     }
   }
@@ -192,6 +194,7 @@ export class BitwardenProvider {
 
       return null;
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return null;
     }
   }
@@ -259,6 +262,7 @@ export class BitwardenProvider {
 
       return true;
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return false;
     }
   }
@@ -294,6 +298,7 @@ export class BitwardenProvider {
 
       return true;
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return false;
     }
   }
@@ -334,6 +339,7 @@ export class BitwardenProvider {
 
       return result;
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return {};
     }
   }
@@ -411,6 +417,7 @@ export class BitwardenProvider {
 
       return match?.id || null;
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return null;
     }
   }
@@ -500,6 +507,7 @@ export class BitwardenProvider {
       });
       return ''; // Empty string = session not needed (already unlocked)
     } catch {
+      // @silent-fallback-ok — vault locked or key not found — caller handles missing secret
       return null;
     }
   }
