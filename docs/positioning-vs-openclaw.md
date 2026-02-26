@@ -1,8 +1,8 @@
 # Instar vs OpenClaw: Comprehensive Comparison
 
 > Foundational positioning document. Articulates what Instar IS, who it's for, and how it stands apart from OpenClaw — the most comparable project in the space.
-> Created: 2026-02-18 | Updated: 2026-02-20 (merged deep-dive analysis from full docs review)
-> Sources: OpenClaw open-source repository study + full docs.openclaw.ai review
+> Created: 2026-02-18 | Updated: 2026-02-25 (fact-checked all claims against current OpenClaw docs)
+> Sources: OpenClaw open-source repository study + full docs.openclaw.ai review (Feb 2026)
 
 ---
 
@@ -29,14 +29,14 @@ OpenClaw is a WebSocket gateway that connects an embedded AI agent (Pi SDK) to 2
 - SOUL.md bootstrap ritual — the agent co-creates its identity with you on first run
 - Docker sandboxing (3 modes × 3 scopes × access levels) with tool policy profiles and security audit CLI
 - ClawHub skill marketplace with vector search for discovery
-- 50 bundled skills referenced (smart home, notes, dev tools, media — not individually documented)
+- ClawHub skill marketplace with thousands of community-built skills
 - Multi-agent routing with deterministic priority hierarchy
 - Hybrid memory search (BM25 + vector with MMR and temporal decay)
 - Lobster workflow DSL for deterministic multi-step pipelines with approval gates
 - 1000+ configuration fields with hot-reload, schema validation, env var substitution
 - Auth profile rotation with failover (exponential cooldown, session stickiness)
 - Browser automation (CDP + Playwright, AI-friendly snapshots, sandbox-aware containers)
-- 12+ model providers with custom endpoint support
+- 28+ model providers with auth rotation and failover (Anthropic, OpenAI, Gemini, Groq, Cerebras, Bedrock, local models via Ollama/vLLM, and many more)
 
 **The mental model:** OpenClaw IS the product. You deploy it, and it becomes your AI assistant.
 
@@ -156,10 +156,10 @@ Different threat models. OpenClaw defends against untrusted users and external a
 
 | Feature | Details | Reality Check |
 |---------|---------|---------------|
-| **50 Bundled Skills** | 1Password, Spotify, Hue, food ordering, etc. | Listed on features page, not individually documented. Robustness unknown. |
-| **ClawHub Marketplace** | Vector search discovery, semantic versioning, community moderation. | Exists. Community size/activity unknown. |
-| **Device Apps** | macOS menu bar, Android (chat + camera + canvas). | macOS is mature. iOS is "internal preview, not public." |
-| **Voice Wake** | Wake word detection on paired devices. | Docs return 404. Referenced but not documented. |
+| **ClawHub Marketplace** | Vector search discovery, semantic versioning, community moderation. | Active -- 3,000-5,700+ community skills. Multiple third-party security audits confirm real usage. |
+| **Device Apps** | macOS menu bar, Android (chat + camera + canvas). | macOS appears distributed. iOS is "internal preview, not publicly distributed." |
+| **Voice Wake** | Wake word detection on paired devices. | Documented at `/nodes/voicewake`. Supported on macOS, iOS, Android. |
+| **Voice Call Plugin** | Actual phone calls via Twilio/Telnyx. | Separate plugin. Goes beyond TTS into real voice conversations. |
 | **Lobster Workflow DSL** | Deterministic pipelines with approval gates and durable pause/resume. | Clean design. No adoption signals. |
 | **Canvas/A2UI** | Agent-controlled visual UI rendering on devices. | Interesting vision. Feels early-stage. |
 | **QMD Memory Backend** | Local-first BM25 + vectors + reranking sidecar. | Explicitly marked experimental. |
@@ -204,7 +204,27 @@ Every scheduled job gets its own Telegram topic. The group becomes a living dash
 
 Ships with health checks, reflection triggers, and relationship maintenance. The agent has a circadian rhythm out of the box.
 
-### 9. ToS Compliance
+### 9. Self-Healing Agent
+
+LLM-powered stall detection and recovery. Session health monitoring across all active sessions. Promise tracking (detects "working on it" and follows up if no response). Loud degradation reporting with zero silent fallbacks. The agent monitors itself and recovers from failures autonomously.
+
+### 10. External Operation Safety
+
+An LLM-supervised gate that evaluates every external service call before execution. Risk classification based on mutability, reversibility, and scope. Emergency stop capability. Adaptive trust that evolves per service based on track record. Born from a real incident where an AI agent deleted a user's emails.
+
+### 11. Intent Alignment
+
+Decision journaling, drift detection, organizational intent constraints, and alignment scoring. No other agent framework provides infrastructure for tracking whether the agent is staying aligned with its stated purpose over time.
+
+### 12. Conversational Memory
+
+Per-topic SQLite memory with full-text search and rolling LLM summaries. After compaction or session restart, the agent picks up exactly where it left off with full conversation context. FTS5 search across all agent knowledge.
+
+### 13. Multi-Machine Support
+
+Ed25519 cryptographic machine identity, secure pairing with word-based codes, AES-256-GCM encrypted sync, distributed heartbeat with automatic failover, and primary-machine-writes-only enforcement. Run across multiple computers seamlessly.
+
+### 14. ToS Compliance
 
 Spawns the real Claude Code CLI. Never extracts, proxies, or spoofs OAuth tokens. Works today without violating Anthropic's terms.
 
@@ -225,7 +245,7 @@ Spawns the real Claude Code CLI. Never extracts, proxies, or spoofs OAuth tokens
 | **Voice** | ElevenLabs/OpenAI TTS, talk mode, interrupt | None |
 | **Device apps** | macOS, Android, iOS (preview) | None |
 | **Sandbox** | Docker (3×3 matrix), tool policies, audit CLI | Dangerous command guards, user permissions |
-| **Skills** | 50 bundled + ClawHub marketplace | Project-local + self-creating |
+| **Skills** | ClawHub marketplace (3,000+ community skills) | Project-local + self-creating |
 | **Multi-user** | Yes (group chat, allowlists, per-user routing) | Basic multi-user (UserManager, per-user channels) |
 | **Jobs** | Cron with retry, jitter, persistent storage | Full scheduler with topic coupling + coherence jobs |
 | **Hooks** | Plugin hooks, three-tier discovery | Claude Code native hooks (pre/post tool, lifecycle) |
@@ -233,9 +253,14 @@ Spawns the real Claude Code CLI. Never extracts, proxies, or spoofs OAuth tokens
 | **Config** | 1000+ fields, hot-reload, schema validation | JSON config, agent-modifiable |
 | **Browser** | CDP + Playwright, element refs, VNC sandbox | Via Claude Code MCP (Playwright, Chrome extension) |
 | **Workflows** | Lobster DSL (pipelines, approval gates) | Claude Code skill system |
-| **Model providers** | 12+ (Anthropic, OpenAI, Gemini, Bedrock, etc.) | Claude-only (via Claude Code) |
+| **Model providers** | 28+ (Anthropic, OpenAI, Gemini, Bedrock, local models, etc.) | Claude (via Claude Code) |
 | **Deployment** | Docker, Fly.io, Railway, GCP, Hetzner, etc. | tmux on any machine with Node.js |
-| **Testing** | Not documented | 1,000+ tests (unit + integration + e2e) |
+| **Self-healing** | Loop detection | LLM-powered stall triage, session monitoring, promise tracking |
+| **External safety** | Exec approval system | LLM-supervised operation gate with adaptive trust |
+| **Intent alignment** | -- | Decision journal, drift detection, org constraints |
+| **Multi-machine** | -- | Ed25519 crypto, encrypted sync, automatic failover |
+| **Conversational memory** | Session-based | Per-topic SQLite with FTS5 search and rolling summaries |
+| **Testing** | Not documented | 2,793 tests (unit + integration + e2e) |
 | **Target user** | Anyone wanting AI assistant | Developers building with Claude Code |
 
 ---
@@ -285,13 +310,17 @@ The overlap is: "both run an AI agent that talks to you on Telegram." Beyond tha
 
 ### The Honest Gap
 
-More messaging channels and voice. That's it. And it's a gap we choose not to close fully, because it's not our category.
+More messaging channels (20+ vs 1), voice/TTS, companion device apps, model provider breadth (28+ vs Claude-only), a massive community ecosystem (228k GitHub stars, ClawHub marketplace), and Docker sandboxing. These are real, mature features backed by significant investment. We choose not to close most of these gaps because they serve a different category.
 
 ### The Honest Advantage
 
-Everything else:
+Depth over breadth:
 - Runtime depth (full Claude Code vs embedded agent framework)
-- Multi-session orchestration (parallel agents vs single gateway)
+- Self-healing (LLM-powered stall recovery, session monitoring, promise tracking -- not just loop detection)
+- External operation safety (LLM-supervised gate with adaptive trust -- born from a real incident)
+- Intent alignment (decision journaling, drift detection, organizational constraints -- unique to Instar)
+- Conversational memory (per-topic SQLite with FTS5 search and rolling summaries)
+- Multi-machine (encrypted sync, automatic failover, cryptographic identity)
 - Identity infrastructure (structural guarantees vs file the agent tries to remember)
 - Self-evolution (modify the system itself vs modify workspace files)
 - Relationship tracking (understand humans vs log conversations)
@@ -303,4 +332,4 @@ Everything else:
 
 ---
 
-*This document compares Instar (v0.8.0) against OpenClaw as studied from both the open-source repository and full documentation site (docs.openclaw.ai) in February 2026. Both projects are actively evolving.*
+*This document compares Instar (v0.9.17) against OpenClaw as studied from both the open-source repository and full documentation site (docs.openclaw.ai) in February 2026. All claims fact-checked against current docs. Both projects are actively evolving.*

@@ -89,6 +89,30 @@ instar user add --id alice --name "Alice" [--telegram 123] [--email a@b.com]
 instar job add --slug check-email --name "Email Check" --schedule "0 */2 * * *" \
   [--description "..."] [--priority high] [--model sonnet]
 
+# Backup and restore
+instar backup create               # Snapshot identity, jobs, relationships
+instar backup list                  # List available snapshots
+instar backup restore TIMESTAMP    # Restore a snapshot
+
+# Memory search
+instar memory search "deployment"  # Full-text search across agent knowledge
+instar memory reindex              # Rebuild the search index
+instar memory status               # Index stats
+
+# Intent alignment
+instar intent reflect              # Review recent decisions against stated intent
+instar intent org-init             # Scaffold ORG-INTENT.md for organizational constraints
+instar intent validate             # Check AGENT.md against ORG-INTENT.md
+instar intent drift                # Detect behavioral drift over time
+
+# Multi-machine
+instar machines whoami             # Show this machine's identity
+instar machines pair               # Generate a pairing code
+instar machines join CODE          # Join using a pairing code
+
+# Diagnostics
+instar doctor                      # Run health diagnostics
+
 # Feedback
 instar feedback --type bug --title "Session timeout" --description "Details..."
 ```
@@ -106,6 +130,12 @@ instar feedback --type bug --title "Session timeout" --description "Details..."
 - **[Relationship Tracking](#relationships-as-fundamental-infrastructure)** -- Cross-platform identity resolution, significance scoring, context injection.
 - **[Evolution System](#evolution-system)** -- Four subsystems for structured growth: proposal queue, learning registry, gap tracking, and commitment follow-through.
 - **[Self-Evolution](#self-evolution)** -- The agent modifies its own jobs, hooks, skills, and infrastructure. It builds what it needs.
+- **[Self-Healing](#self-healing)** -- LLM-powered stall detection, automatic session recovery, promise tracking, and loud degradation reporting. No silent failures.
+- **[Conversational Memory](#conversational-memory)** -- Per-topic SQLite memory with full-text search and rolling summaries. The agent remembers every conversation.
+- **[External Operation Safety](#external-operation-safety)** -- LLM-supervised safety gate for external service calls. Adaptive trust that evolves with track record.
+- **[Intent Alignment](#intent-alignment)** -- Decision journaling, drift detection, and organizational intent constraints. The agent stays on track.
+- **[Multi-Machine](#multi-machine)** -- Run your agent across multiple computers with encrypted sync, automatic failover, and cryptographic machine identity.
+- **[Coherence System](#coherence-system)** -- Project-aware spatial reasoning and pre-action verification. The agent knows where it is and checks before acting.
 - **[Capability Discovery](#capability-discovery)** -- Agents know all their capabilities from the moment they start. Context-triggered feature suggestions.
 - **[Innovation Detection](#innovation-detection)** -- Agents detect when user-built features could benefit all Instar agents and submit improvement feedback.
 - **[Behavioral Hooks](#behavioral-hooks)** -- Structural guardrails: identity injection, dangerous command guards, grounding before messaging.
@@ -178,36 +208,42 @@ Anthropic's policy: OAuth tokens are for Claude Code and claude.ai only. Project
 | | OpenClaw | Instar |
 |---|---|---|
 | **What it is** | AI assistant framework | Autonomy infrastructure |
-| **Runtime** | Pi SDK (embedded agent) | Claude Code (full dev environment) |
+| **Runtime** | Pi SDK (embedded agent runtime) | Claude Code (full dev environment) |
 | **Sessions** | Multi-session gateway | Multiple parallel Claude Code instances |
-| **Identity** | SOUL.md (file) | Multi-file + behavioral hooks + CLAUDE.md instructions |
-| **Memory** | Hybrid vector search | Relationship-centric (cross-platform, significance) |
+| **Identity** | SOUL.md (co-created, agent-editable) | Multi-file + behavioral hooks + compaction recovery |
+| **Memory** | Hybrid BM25 + vector search with temporal decay | Relationship-centric + per-topic conversational memory |
 | **Messaging** | 20+ channels | Telegram (Slack/Discord planned) |
-| **Voice** | ElevenLabs TTS, talk mode | -- |
-| **Device apps** | macOS, Android, iOS (preview) | -- |
-| **Sandbox** | Docker 3×3 matrix | Dangerous command guards |
-| **Self-evolution** | Workspace file updates | Full infrastructure self-modification |
-| **ToS status** | API keys + OAuth (OAuth path restricted) | Spawns real Claude Code (compliant) |
+| **Voice** | ElevenLabs TTS, talk mode, voice wake | -- |
+| **Device apps** | macOS, Android, iOS (internal preview) | -- |
+| **Sandbox** | Docker 3×3 matrix + security audit CLI | External operation safety gate + dangerous command guards |
+| **Model providers** | 28+ (Anthropic, OpenAI, Gemini, local models, etc.) | Claude (via Claude Code) |
+| **Self-evolution** | SOUL.md + workspace file updates | Full infrastructure self-modification + evolution system |
+| **Self-healing** | Loop detection | LLM-powered stall triage, session monitoring, promise tracking |
+| **Intent alignment** | -- | Decision journal, drift detection, organizational constraints |
+| **Multi-machine** | -- | Encrypted sync, automatic failover, cryptographic identity |
+| **ToS status** | API keys + OAuth (OAuth path restricted by Anthropic) | Spawns real Claude Code (compliant) |
 
-**OpenClaw optimizes for ubiquity** -- AI across every messaging platform. **Instar optimizes for autonomy** -- an agent that runs, remembers, grows, and evolves.
+**OpenClaw optimizes for reach** -- AI across every messaging platform and device. **Instar optimizes for depth** -- an agent that is coherent, self-healing, aligned, and evolving.
 
 ### Where OpenClaw leads
 
-20+ messaging channels with deep per-channel config. Docker sandboxing with [security audit CLI](https://docs.openclaw.ai/gateway/security). Voice/TTS via ElevenLabs. Multi-agent routing. These are real, mature features.
-
-Some claims are less proven: iOS app is "internal preview." Voice wake docs return 404. 50 bundled skills are listed but not individually documented.
+20+ messaging channels with deep per-channel config. Docker sandboxing with [security audit CLI](https://docs.openclaw.ai/gateway/security). Voice/TTS via ElevenLabs with voice wake across devices. Multi-agent routing with deterministic priority hierarchy. 28+ model providers with auth rotation and failover. ClawHub marketplace with thousands of community-built skills. Companion apps on macOS, Android, and iOS (internal preview). These are real, mature features backed by a large community.
 
 ### Where Instar leads
 
-**Runtime depth.** Each session is a full Claude Code instance -- extended thinking, native tools, sub-agents, MCP servers. Not an API wrapper. Agents ship with smart web conventions out of the box -- checking `llms.txt` and requesting Cloudflare markdown before falling back to raw HTML, cutting token costs by up to 80%.
+**Runtime depth.** Each session is a full Claude Code instance -- extended thinking, native tools, sub-agents, MCP servers. Not an API wrapper. Every feature Anthropic adds to Claude Code, Instar agents get automatically.
 
-**Multi-session orchestration.** Multiple parallel jobs, each an independent Claude Code process with its own context and tools.
+**Self-healing agent.** LLM-powered stall detection and recovery, session health monitoring, promise tracking, and loud degradation reporting. The agent doesn't just run -- it monitors itself and recovers from failures on its own.
+
+**Conversational continuity.** Per-topic SQLite memory with full-text search and rolling summaries. After compaction or session restart, the agent picks up exactly where it left off with full conversation context.
+
+**External operation safety.** An LLM-supervised gate that evaluates every external service call before execution. Adaptive trust that evolves per service. Emergency stop capability. Born from a real incident -- not theoretical.
+
+**Intent alignment.** Decision journaling, drift detection, organizational constraints. No other agent framework tracks whether the agent is staying aligned with its purpose over time.
 
 **Identity infrastructure.** Hooks re-inject identity on session start, after compaction, and before messaging. The agent doesn't try to remember who it is -- the infrastructure guarantees it. Structure over willpower.
 
-**Memory that understands relationships.** OpenClaw has sophisticated retrieval (BM25 + vector + temporal decay). But it remembers *conversations*. Instar understands *relationships* -- cross-platform identity resolution, significance scoring, context injection.
-
-**Self-evolution.** The agent modifies its own jobs, hooks, skills, config, and infrastructure. Not just workspace files -- the system itself.
+**Multi-machine.** Run across multiple computers with Ed25519 cryptographic identity, encrypted sync, and automatic failover. Your agent works wherever you are.
 
 Different tools for different needs. Different bets on different futures.
 
@@ -363,6 +399,67 @@ Agents proactively detect when user-built features could benefit all Instar agen
 
 If yes, the agent silently submits improvement feedback through the feedback loop, contributing to collective evolution.
 
+### Self-Healing
+
+Your agent recovers from problems on its own. No silent failures, no stale sessions, no unanswered messages.
+
+- **Stall detection** -- If a Telegram message goes unanswered for 2+ minutes, an LLM-powered triage nurse activates: diagnoses the problem, treats it (nudge, interrupt, or restart), verifies recovery, and escalates if needed
+- **Session monitoring** -- Polls all active sessions every 60 seconds. Detects dead, unresponsive, and idle sessions and coordinates automatic recovery
+- **Promise tracking** -- When the agent says "working on it" or "give me a minute," a timer starts. If no follow-up arrives, the agent is nudged and the user is notified
+- **Loud degradation** -- When a fallback activates (e.g., LLM provider unavailable, file write failed), it's logged, reported, and surfaced -- never silently swallowed. 142 catch blocks audited with zero new silent fallbacks allowed
+
+The agent doesn't just run. It monitors itself, recovers from failures, and tells you when something is degraded instead of quietly breaking.
+
+### Conversational Memory
+
+Every Telegram topic conversation is stored, searchable, and summarized -- so the agent picks up exactly where it left off.
+
+- **Per-topic SQLite memory** -- All messages dual-written to JSONL (source of truth) and SQLite (query engine) with FTS5 full-text search
+- **Rolling summaries** -- LLM-generated conversation summaries that update incrementally as conversations grow
+- **Context re-injection** -- On session start and after compaction, the topic summary and recent messages are loaded as highest-priority context. The agent never starts cold
+- **Full-text search** -- Search across all agent knowledge (AGENT.md, USER.md, MEMORY.md, relationships) via `instar memory search`
+
+### External Operation Safety
+
+When your agent calls external services (email, APIs, databases), an LLM-supervised safety gate evaluates each operation before it executes.
+
+- **Risk classification** -- Every external operation is scored on mutability, reversibility, and scope. Bulk deletes and irreversible sends require explicit approval
+- **Emergency stop** -- Say "stop everything" and the MessageSentinel halts operations before normal routing
+- **Adaptive trust** -- Trust levels evolve per service based on track record. New services start supervised; consistent success earns autonomy. Trust is earned, not assumed
+- **Automatic installation** -- The safety gate hook is installed automatically for all MCP tool calls. No configuration needed
+
+Born from a real incident where an AI agent deleted a user's emails. Instar ensures your agent asks before doing anything it can't undo.
+
+### Intent Alignment
+
+Infrastructure that keeps your agent aligned with its stated purpose -- not just in one session, but over time.
+
+- **Decision journal** -- Every significant decision is logged with context, reasoning, and which principles it invoked. Creates an auditable record of agent behavior
+- **Drift detection** -- Compares decision patterns across time windows to detect when behavior is drifting from stated intent. Measures conflict frequency, confidence trends, and principle consistency
+- **Organizational intent** -- `ORG-INTENT.md` defines shared constraints across multiple agents. Org constraints are mandatory; org goals are defaults; agent identity fills the rest
+- **Alignment scoring** -- A weighted 0-100 score across four dimensions: conflict freedom, decision confidence, principle consistency, and journal health
+
+No other agent framework has this. Your agent doesn't just run autonomously -- it stays aligned with what it's supposed to be doing.
+
+### Multi-Machine
+
+Run your agent across multiple computers -- laptop at the office, desktop at home -- with encrypted sync and automatic failover.
+
+- **Cryptographic machine identity** -- Each machine gets Ed25519 signing keys and X25519 encryption keys
+- **Secure pairing** -- Word-based pairing codes (WORD-WORD-NNNN) with ECDH key exchange and SAS verification. 3 attempts, 2-minute expiry
+- **Encrypted sync** -- Agent state synchronized via git with commit signing. Secrets encrypted with AES-256-GCM at rest, forward secrecy on the wire
+- **Automatic failover** -- Distributed heartbeat coordination with split-brain detection. If the primary machine goes offline, the standby takes over
+- **Write authority** -- Primary-machine-writes-only enforcement prevents conflicts. Secondary machines queue changes until they can sync
+
+### Coherence System
+
+Your agent knows where it is, what project it's working on, and verifies before taking consequential actions.
+
+- **Project mapping** -- Auto-generated territory map of your project structure: directories, key files, git remote, deployment targets
+- **Pre-action verification** -- Before deploying, pushing, or calling external APIs, the CoherenceGate runs 6 checks: working directory, git remote, topic-project alignment, deployment target, path scope, and agent identity
+- **Context hierarchy** -- Three-tier context loading: always-on (identity, safety), session boundaries (continuity, relationships), and on-demand (development, deployment). Right context at the right moment
+- **Canonical state** -- Registry-first state management with quick-facts, anti-patterns, and project registries. The agent checks what it knows before searching broadly
+
 ### Persistent Server
 
 The server runs 24/7 in the background, surviving terminal disconnects and auto-recovering from failures. The agent operates it — you don't need to manage it.
@@ -414,6 +511,29 @@ The server runs 24/7 in the background, surviving terminal disconnects and auto-
 | POST | `/evolution/actions` | Create an action item |
 | GET | `/evolution/actions/overdue` | List overdue actions |
 | PATCH | `/evolution/actions/:id` | Update action status |
+| POST | `/backup` | Create a backup snapshot |
+| GET | `/backup` | List available backups |
+| POST | `/backup/restore` | Restore from a snapshot |
+| GET | `/memory/search?q=` | Full-text search across agent knowledge |
+| POST | `/memory/reindex` | Rebuild the search index |
+| GET | `/memory/status` | Index stats |
+| GET | `/topic/search?q=` | Search across topic conversations |
+| GET | `/topic/context/:topicId` | Get topic context (summary + recent messages) |
+| GET | `/topic/summary` | List all topic summaries |
+| POST | `/topic/summarize` | Trigger summary regeneration |
+| GET | `/project-map` | Auto-generated project territory map |
+| POST | `/coherence/check` | Pre-action coherence verification |
+| GET | `/intent/journal` | Query the decision journal |
+| POST | `/intent/journal` | Record a decision |
+| GET | `/intent/drift` | Detect behavioral drift |
+| GET | `/intent/alignment` | Alignment score |
+| GET | `/triage/status` | Stall triage nurse status |
+| GET | `/triage/history` | Recovery attempt history |
+| POST | `/triage/trigger` | Manually trigger triage |
+| GET | `/agents` | List all agents on this machine |
+| GET | `/tunnel/status` | Cloudflare tunnel status |
+| POST | `/tunnel/start` | Start a tunnel |
+| POST | `/tunnel/stop` | Stop the tunnel |
 
 ### Identity That Survives Context Death
 
@@ -481,12 +601,13 @@ Automatic hooks fire via Claude Code's hook system:
 | Hook | Type | What it does |
 |------|------|-------------|
 | **Dangerous command guard** | PreToolUse (blocking) | Blocks destructive operations structurally |
+| **External operation gate** | PreToolUse (blocking) | LLM-supervised safety for external service calls (MCP tools) |
 | **Grounding before messaging** | PreToolUse (advisory) | Forces identity re-read before external communication |
 | **Deferral detector** | PreToolUse (advisory) | Catches the agent deferring work it could do itself |
 | **External communication guard** | PreToolUse (advisory) | Identity grounding before posting to external platforms |
 | **Post-action reflection** | PreToolUse (advisory) | Nudges learning capture after commits, deploys, and significant actions |
-| **Session start** | SessionStart | Injects identity context at session start |
-| **Compaction recovery** | SessionStart (compact) | Restores identity when context compresses |
+| **Session start** | SessionStart | Injects identity, topic context, and capabilities at session start |
+| **Compaction recovery** | SessionStart (compact) | Restores identity and conversation context when context compresses |
 
 ### Default Coherence Jobs
 
@@ -536,10 +657,13 @@ One agent's growing pain becomes every agent's growth.
   AGENT.md                # Agent identity (who am I?)
   USER.md                 # User context (who am I working with?)
   MEMORY.md               # Persistent learnings across sessions
-  hooks/                  # Behavioral scripts (guards, identity injection, reflection)
+  hooks/                  # Behavioral scripts (guards, identity, safety gate, reflection)
   state/                  # Runtime state (sessions, jobs)
     evolution/            # Evolution queue, learnings, gaps, actions (JSON)
+    journal/              # Decision journal entries (JSONL)
+  context/                # Tiered context segments (auto-generated)
   relationships/          # Per-person relationship files
+  memory.db               # SQLite: topic memory + full-text search index
   logs/                   # Server logs
 .claude/                  # Claude Code configuration
   settings.json           # Hook registrations
@@ -547,7 +671,7 @@ One agent's growing pain becomes every agent's growth.
   skills/                 # Built-in + agent-created skills (evolve, learn, gaps, commit-action)
 ```
 
-Everything is file-based. No database. JSON state files the agent can read and modify. tmux for session management -- battle-tested, survives disconnects, fully scriptable.
+Everything is file-based. JSON state files the agent can read and modify. SQLite for search (derived from JSONL -- delete and rebuild anytime). tmux for session management -- battle-tested, survives disconnects, fully scriptable.
 
 ## Security Model: Permissions & Transparency
 
@@ -569,6 +693,7 @@ Instead of per-action permission prompts, Instar pushes security to a higher lev
 
 **Behavioral hooks** -- Structural guardrails that fire automatically:
 - Dangerous command guards block `rm -rf`, force push, database drops
+- External operation gate evaluates every MCP tool call before execution (risk classification, adaptive trust, emergency stop)
 - Grounding hooks force identity re-read before external communication
 - Session-start hooks inject safety context into every new session
 

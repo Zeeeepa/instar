@@ -213,6 +213,18 @@ import Layout from '../layouts/Layout.astro';
           <div class="bg-slate-800/30 p-3 text-sm text-slate-300">Intelligence flows in</div>
           <div class="bg-slate-800/30 p-3 text-sm text-slate-400">&mdash;</div>
           <div class="bg-slate-800/30 p-3 text-sm text-slate-200">AutoDispatcher receives lessons and config from Dawn</div>
+
+          <div class="bg-slate-900/30 p-3 text-sm text-slate-300">Stalled sessions recover</div>
+          <div class="bg-slate-900/30 p-3 text-sm text-slate-400">&mdash;</div>
+          <div class="bg-slate-900/30 p-3 text-sm text-slate-200">LLM-powered triage: detect, diagnose, treat, verify</div>
+
+          <div class="bg-slate-800/30 p-3 text-sm text-slate-300">External calls are safe</div>
+          <div class="bg-slate-800/30 p-3 text-sm text-slate-400">&mdash;</div>
+          <div class="bg-slate-800/30 p-3 text-sm text-slate-200">Operation safety gate with adaptive trust per service</div>
+
+          <div class="bg-slate-900/30 p-3 text-sm text-slate-300">Conversations persist</div>
+          <div class="bg-slate-900/30 p-3 text-sm text-slate-400">&mdash;</div>
+          <div class="bg-slate-900/30 p-3 text-sm text-slate-200">Per-topic memory with search and rolling summaries</div>
         </div>
       </div>
 
@@ -409,6 +421,69 @@ curl -X POST localhost:4040/sessions/research/input \\
           <p class="text-slate-400 text-sm leading-relaxed">
             Your agent starts automatically when you log into your computer. macOS LaunchAgent or Linux systemd &mdash;
             installed during setup. Reboot your machine, your agent is already running.
+          </p>
+        </div>
+
+        <!-- Self-Healing -->
+        <div class="group rounded-xl border border-slate-800 bg-slate-900/40 p-8 hover:border-teal-500/20 transition-colors">
+          <div class="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center mb-5">
+            <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-100 mb-2">Self-Healing</h3>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            Your agent recovers from problems on its own. LLM-powered stall detection diagnoses and treats stuck sessions.
+            Promise tracking follows up when the agent says "working on it" but goes quiet. No silent failures &mdash; ever.
+          </p>
+          <div class="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 space-y-2 text-xs">
+            <div class="flex items-center gap-2">
+              <div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+              <span class="text-slate-400">Stall detected &rarr; diagnosed &rarr; treated &rarr; verified</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+              <span class="text-slate-400">142 catch blocks audited &mdash; zero silent fallbacks</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Conversational Memory -->
+        <div class="group rounded-xl border border-slate-800 bg-slate-900/40 p-8 hover:border-teal-500/20 transition-colors">
+          <div class="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center mb-5">
+            <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-100 mb-2">Conversational Memory</h3>
+          <p class="text-slate-400 text-sm leading-relaxed">
+            Every topic conversation is stored in SQLite with full-text search and rolling LLM summaries.
+            After a session restart or context compaction, the agent picks up exactly where it left off &mdash; no cold starts.
+          </p>
+        </div>
+
+        <!-- External Operation Safety -->
+        <div class="group rounded-xl border border-slate-800 bg-slate-900/40 p-8 hover:border-teal-500/20 transition-colors">
+          <div class="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center mb-5">
+            <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-100 mb-2">External Operation Safety</h3>
+          <p class="text-slate-400 text-sm leading-relaxed mb-4">
+            When your agent calls external services, an LLM-supervised safety gate evaluates each operation.
+            Adaptive trust evolves per service &mdash; new services start supervised, consistent success earns autonomy.
+            Say "stop everything" for an immediate emergency halt.
+          </p>
+          <div class="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 text-xs text-slate-400">
+            Born from a real incident where an AI agent deleted a user's emails. Your agent asks before doing anything it can't undo.
+          </div>
+        </div>
+
+        <!-- Intent Alignment -->
+        <div class="group rounded-xl border border-slate-800 bg-slate-900/40 p-8 hover:border-teal-500/20 transition-colors">
+          <div class="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center mb-5">
+            <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-100 mb-2">Intent Alignment</h3>
+          <p class="text-slate-400 text-sm leading-relaxed">
+            Decision journaling tracks what your agent decides and why. Drift detection catches when behavior
+            shifts from stated purpose. Organizational constraints enforce shared rules across multiple agents.
+            No other agent framework has this.
           </p>
         </div>
       </div>
@@ -673,14 +748,44 @@ curl -X POST localhost:4040/sessions/research/input \\
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm text-slate-300"><span class="text-teal-400 font-medium">Instar:</span> Built-in feedback loop &mdash; agent reports issues, fixes flow to all agents via auto-updater + intelligence dispatches. Every agent's experience improves every other agent.</p>
-            <p class="text-sm text-slate-500 mt-1"><span class="text-slate-400">OpenClaw:</span> ClawHub skill marketplace for sharing capabilities. Community-driven distribution model.</p>
+            <p class="text-sm text-slate-500 mt-1"><span class="text-slate-400">OpenClaw:</span> ClawHub skill marketplace with thousands of community skills. Community-driven distribution model.</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-4 p-4 rounded-lg border border-slate-800 bg-slate-900/40">
+          <div class="shrink-0 mt-0.5">
+            <span class="text-xs font-medium text-slate-500 bg-slate-800 px-2 py-1 rounded">Self-healing</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-slate-300"><span class="text-teal-400 font-medium">Instar:</span> LLM-powered stall detection and recovery, session health monitoring, promise tracking, loud degradation reporting. 142 catch blocks audited with zero silent fallbacks allowed.</p>
+            <p class="text-sm text-slate-500 mt-1"><span class="text-slate-400">OpenClaw:</span> Loop detection (generic repeat, poll-no-progress, ping-pong).</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-4 p-4 rounded-lg border border-slate-800 bg-slate-900/40">
+          <div class="shrink-0 mt-0.5">
+            <span class="text-xs font-medium text-slate-500 bg-slate-800 px-2 py-1 rounded">Safety</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-slate-300"><span class="text-teal-400 font-medium">Instar:</span> LLM-supervised external operation gate with adaptive trust, emergency stop, and risk classification. Born from a real email deletion incident. Trust is earned per service, not assumed.</p>
+            <p class="text-sm text-slate-500 mt-1"><span class="text-slate-400">OpenClaw:</span> Docker sandboxing (3&times;3 matrix), tool policy profiles, exec approval system, security audit CLI.</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-4 p-4 rounded-lg border border-slate-800 bg-slate-900/40">
+          <div class="shrink-0 mt-0.5">
+            <span class="text-xs font-medium text-slate-500 bg-slate-800 px-2 py-1 rounded">Alignment</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-slate-300"><span class="text-teal-400 font-medium">Instar:</span> Decision journal, drift detection, organizational constraints, alignment scoring. The agent stays on track over time &mdash; not just in a single session.</p>
+            <p class="text-sm text-slate-500 mt-1"><span class="text-slate-400">OpenClaw:</span> No equivalent &mdash; alignment is implicit in SOUL.md, not measured.</p>
           </div>
         </div>
       </div>
 
       <div class="rounded-lg border border-slate-700/50 bg-slate-800/30 p-5 mb-4">
         <p class="text-sm text-slate-400 text-center">
-          <span class="text-slate-300 font-medium">Where OpenClaw leads:</span> 20+ messaging channels, native device apps (macOS/iOS/Android), voice &amp; TTS, Docker sandboxing, 12+ model providers, ClawHub marketplace.
+          <span class="text-slate-300 font-medium">Where OpenClaw leads:</span> 20+ messaging channels, native device apps (macOS/Android, iOS in preview), voice &amp; TTS with voice wake, Docker sandboxing with security audit CLI, 28+ model providers, ClawHub marketplace with thousands of community skills.
         </p>
       </div>
 
