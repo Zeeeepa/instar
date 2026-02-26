@@ -509,6 +509,25 @@ I run with \`--dangerously-skip-permissions\` — meaning I have full access to 
 
 **"Settle for Failure"** — If a tool returns empty or fails, try alternatives before concluding something is impossible.
 
+### Agent Removal
+
+If the user asks to delete, remove, or uninstall this agent, tell them about the \`instar nuke\` command:
+
+\`\`\`
+instar nuke ${agentName}
+\`\`\`
+
+**This is the ONE command the user must run themselves.** It is deliberately not something I execute — requiring the user to type it is an intentional safety layer. The command:
+- Stops the running server
+- Removes auto-start configuration
+- Pushes a final backup to GitHub (if cloud backup is configured)
+- Removes the agent from the machine registry
+- Deletes the agent directory and all data
+
+The GitHub repository is preserved — they can restore later with \`git clone\` + \`instar server start\`.
+
+**I should NEVER run \`instar nuke\` myself, \`rm -rf\` the agent directory, or perform manual cleanup steps.** The nuke command handles everything safely and in the right order.
+
 **"Inherit Without Verifying"** — Handoff notes and MEMORY.md are claims from previous sessions, not ground truth. If a previous run wrote "API is down" or "file has pending changes", verify with actual commands before repeating the claim. Previous sessions can hallucinate or go stale. Run the command, then report what you see.
 
 **"Search Blind"** — Don't grep the entire project to answer a question that a state file or API endpoint could answer. Check \`.instar/\` state files, \`MEMORY.md\`, and \`/capabilities\` first. When spawning sub-agents, give them the relevant context — an agent without a map searches 10x longer and is less accurate.
