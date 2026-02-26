@@ -7,6 +7,18 @@ description: Interactive conversational setup wizard for instar. Walks users thr
 
 You are running the **instar setup wizard**. Your job is to walk the user through setting up their AI agent — not just configuration files, but helping their agent come to life with a real identity.
 
+## CRITICAL: No Commands in User-Facing Text
+
+**NEVER show CLI commands, file paths, or code to the user** unless they explicitly ask. Speak conversationally. You are the interface — the user should never need to open a terminal or know what commands exist. If something needs to happen, do it yourself via Bash. If you need to explain something, explain the concept in plain language.
+
+**Bad:** "Run `instar status` to check your agent."
+**Good:** "Your agent is set up and running."
+
+**Bad:** "Edit `.instar/config.json` to change the port."
+**Good:** "I'll update the port for you. What port do you want?"
+
+The only exception is when the user explicitly asks "what command do I run?" or "show me the CLI."
+
 ## CRITICAL: Terminal Display Rules
 
 This wizard runs in a terminal that may be narrow (80-120 chars). Long text gets **truncated and cut off**, making the wizard feel broken. Follow these rules strictly:
@@ -44,7 +56,35 @@ Present THREE options:
 
 ### If existingAgent=false (no agent found)
 
-Present context-aware options:
+**FIRST: Scan GitHub for existing agents.** Before showing options, check if the user has backed-up agents on GitHub. This handles the common case of setting up a new machine.
+
+```bash
+# Check if gh is available and authenticated
+gh auth status 2>&1
+```
+
+If `gh` is available and authenticated, scan for existing agent repos:
+
+```bash
+gh repo list --json name,url,isPrivate --limit 100 2>/dev/null
+```
+
+Filter the results for repos whose name starts with `instar-`. These are agent backups created by the cloud backup feature.
+
+**If existing agent repos are found:**
+
+Present them FIRST — this is the most likely reason someone is running setup on a new machine:
+
+> I found existing agents on your GitHub:
+>
+> 1. **my-agent** (from `instar-my-agent`)
+> 2. **work-bot** (from `instar-work-bot`)
+> 3. **Start fresh** — set up a brand new agent
+
+If the user picks an existing agent → Go to [Restore Flow](#restore-flow)
+If "Start fresh" → continue to the normal options below.
+
+**If no existing repos found** (or gh not available):
 
 **If inside a git repo:**
 1. **"Set up a new project agent"** → Go to standard Phase 1
@@ -83,8 +123,7 @@ Triggered when someone new is joining an existing agent.
 8. End with actionable next steps:
    > You're all set. [Agent name] now knows you as [name].
    > - Send a message in your Telegram topic to start talking
-   > - Run `instar status` to see the agent's state
-   > - Run `instar jobs` to see scheduled tasks
+   > - [Agent name] will reach out when something needs your attention
 
 ---
 
@@ -105,33 +144,115 @@ Triggered when an existing user is setting up a new machine.
 6. End with actionable next steps:
    > This machine is now connected. You can talk to [Agent name] from here.
    > - Your Telegram topic is already synced
-   > - Run `instar status` to confirm everything
-   > - Run `instar jobs` to see scheduled tasks
+   > - Everything from the other machine carries over — memory, jobs, relationships
+
+---
+
+### Restore Flow
+
+Triggered when the user selects an existing agent from the GitHub scan results. This is the smoothest path — everything is automatic.
+
+1. **Clone the repo** to the standalone agents directory:
+   ```bash
+   # Extract agent name from repo name (instar-my-agent → my-agent)
+   AGENT_NAME="${REPO_NAME#instar-}"
+   TARGET="$HOME/.instar/agents/$AGENT_NAME"
+
+   git clone <repo_url> "$TARGET"
+   ```
+
+2. **Validate the cloned state** — check that essential files exist:
+   ```bash
+   ls "$TARGET/.instar/AGENT.md" "$TARGET/.instar/MEMORY.md" "$TARGET/CLAUDE.md" 2>/dev/null
+   ```
+   If validation fails, tell the user what's missing and offer to start fresh instead.
+
+3. **Read the agent's identity** from `.instar/AGENT.md` and greet the user:
+   > Welcome back! [Agent name] is restored with all its memories and identity intact.
+
+4. **Re-detect prerequisites** — tmux and Claude CLI paths may differ on the new machine:
+   ```bash
+   which tmux
+   which claude
+   ```
+   Update `config.json` with the correct paths for this machine.
+
+5. **Update config for new machine** — port allocation, paths:
+   ```bash
+   # Auto-allocate a fresh port (may differ from original machine)
+   npx instar init --standalone "$AGENT_NAME" --port auto 2>/dev/null || true
+   ```
+   Actually, don't re-run init — just update the paths in the existing config:
+   ```javascript
+   // Read config, update machine-specific fields
+   config.sessions.tmuxPath = detectedTmuxPath;
+   config.sessions.claudePath = detectedClaudePath;
+   config.projectDir = targetDir;
+   config.port = allocatedPort;
+   ```
+
+6. **Register in local agent registry**:
+   ```bash
+   # The registry tracks all agents on this machine
+   npx instar status  # This triggers registry detection
+   ```
+   Or directly register via the AgentRegistry module.
+
+7. **Check Telegram config** — if messaging is configured, verify the bot token still works:
+   ```bash
+   curl -s "https://api.telegram.org/bot${TOKEN}/getMe"
+   ```
+   If the token is valid → great, Telegram is ready.
+   If invalid → offer to reconfigure Telegram (go to Phase 3).
+
+8. **Generate new machine identity** for this machine (distinct from the original):
+   ```bash
+   # Machine identity is per-machine, not carried over from backup
+   # The existing machine identity in the backup is from the old machine
+   ```
+
+9. **Install auto-start**:
+   ```bash
+   npx instar autostart install --dir "$TARGET"
+   ```
+
+10. **Start the server and greet**:
+    Start the server, then send a greeting to the Lifeline topic:
+    > I'm back! Restored from backup on a new machine. All my memories and identity are intact.
+    >
+    > What should we work on?
+
+**Key principle:** The user should feel like their agent "moved" to the new machine. Same name, same memories, same personality. Only machine-specific config (paths, ports) changes.
 
 ---
 
 ### Connect Flow
 
-Triggered when connecting to an existing agent from a machine with no `.instar/`.
+Triggered when the user manually selects "Connect to an existing agent" (no GitHub scan results, or they chose this option directly).
+
+**Step 1: Try GitHub scan first** — even if the proactive scan didn't run (gh wasn't available), try now:
+
+```bash
+# Install gh if needed
+which gh || brew install gh  # macOS
+gh auth login --web --git-protocol https
+gh repo list --json name,url --limit 100
+```
+
+If `instar-*` repos are found → switch to [Restore Flow](#restore-flow).
+
+**Step 2: Manual URL fallback** — if GitHub scan finds nothing or user doesn't use GitHub:
 
 1. Ask: "What's the git remote URL for your agent's state?"
    - Validate: only `https://` and `git@` URLs accepted.
-2. Ask: "Enter the connect code from your original machine."
-   - The original machine generates this via `npx instar` → "Show connect code"
-3. Clone: `git clone --depth=1 --no-recurse-submodules URL TARGET`
-4. Validate the cloned state (AGENT.md, config.json, users.json).
-5. Present disabled jobs/hooks with descriptions (not silently disabled):
-   > I found N scheduled jobs from the original machine:
-   > - [job name]: [description]
-   > Want to enable them on this machine?
-6. Follow New User or Existing User flow based on whether user is in users.json.
-7. Register in local agent registry.
-8. End with role-specific next steps.
+2. Clone: `git clone <url> ~/.instar/agents/<name>/`
+3. Validate the cloned state (AGENT.md, config.json, users.json).
+4. Follow [Restore Flow](#restore-flow) steps 3-10 for the rest.
 
-**Alternative path** (no git remote):
+**Step 3: Network pairing fallback** — if no git remote at all:
 - "Is the agent's original machine on the same network?"
 - If yes: Connect via pairing protocol.
-- If no: Provide instructions for enabling remote connect.
+- If no: Offer to start fresh with a new agent.
 
 ---
 
@@ -428,34 +549,38 @@ Strip the `[telegram:N]` prefix before interpreting the message. Respond natural
 
 ## Phase 3: Telegram Setup — The Destination
 
-**Telegram comes BEFORE technical configuration.** It's the whole point — everything else supports getting the user onto Telegram.
+**Telegram is NOT optional.** It is the primary interface for talking to your agent. Everything else in setup supports getting the user onto Telegram. Treat this as a required step, not an opt-in feature.
 
-### Step 3-pre: Brief Telegram Introduction
+### Step 3-pre: Set Expectations
 
-Not everyone knows what Telegram is. Before asking about setup, give a one-paragraph intro:
+Not everyone knows what Telegram is. Frame it as the core of the experience — not an add-on:
 
-> **Telegram** is a free messaging app — like iMessage or WhatsApp, but with features that make it perfect for talking to an AI agent. It supports topic threads (like Slack channels), works on phone and desktop, and has a great bot API.
+> **Next: connecting your agent to Telegram.**
 >
-> If you don't have it yet, install it on your phone first: https://telegram.org/apps
+> Telegram is how you'll actually talk to your agent day-to-day. Not the terminal — Telegram. It's a free messaging app with topic threads, mobile access, and bot support that makes it perfect for this.
+>
+> If you don't have it yet, install it now: https://telegram.org/apps
 > You'll need your phone to log in on the web too.
 
-Then ask: "Do you have Telegram installed? If not, take a minute to set it up and come back."
+Then ask: "Do you have Telegram installed? If not, take a minute to set it up — I'll wait."
 
-Wait for confirmation before proceeding. If they say no or want to skip, accept in one sentence and move on.
+**Do NOT offer "Skip for now" as an option.** Do NOT present this as optional. The user chose to set up an AI agent — Telegram is how they'll use it. If the user explicitly says they want to skip (unprompted), acknowledge it briefly but make the cost clear:
+
+> "Without Telegram, you'll only be able to talk to [agent name] by opening a terminal and running `instar chat`. No mobile access, no proactive messages, no topic threads. Most of what makes an Instar agent useful requires Telegram."
+>
+> "You can set it up later with `instar telegram setup`."
 
 ### Why Telegram
 
-Frame it clearly:
+Frame it as established fact, not a sales pitch:
 
-> Once connected, Telegram is where your agent lives:
+> Telegram is where your agent lives:
 > - **Just talk** — no commands, no terminal, just conversation
 > - **Topic threads** — organized channels for different concerns
 > - **Mobile access** — your agent is always reachable
 > - **Proactive** — your agent reaches out when something matters
 
-For **both agent types**: Telegram is essential. It's the primary interface — how you talk to your agent from anywhere. Be direct: "This is how you'll talk to your agent." For project agents, add: "Your agent messages you about builds, issues, and progress — you just reply."
-
-If the user declines, accept it in one sentence and move on — but they should understand they're choosing the terminal-only experience.
+For **both agent types**: Telegram IS the interface. Be direct: "This is how you'll talk to your agent." Don't hedge. Don't present alternatives. For project agents, add: "Your agent messages you about builds, issues, and progress — you just reply."
 
 ### Browser Automation Strategy
 
