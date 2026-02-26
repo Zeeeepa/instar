@@ -815,6 +815,110 @@ Then make it executable:
 chmod +x .claude/scripts/telegram-reply.sh
 ```
 
+## Phase 4.5: Cloud Backup (Recommended)
+
+**Users expect their data to be backed up.** If their machine crashes, they lose everything — memories, identity, config, learnings. Cloud backup prevents this. It should be the default path, not an afterthought.
+
+**NOTE:** The `npx instar init --standalone` command tries to set this up via interactive prompts, but when called from this wizard (non-TTY context), those prompts are skipped. **You must handle cloud backup conversationally here.**
+
+### Step 4.5a: Set Up Local Git Backup
+
+Check if the agent directory already has a git repo:
+
+```bash
+ls <project_dir>/.git 2>/dev/null
+```
+
+If it already has `.git/`, skip to Step 4.5b.
+
+If not, initialize one:
+
+```bash
+# Check if git is available
+which git
+
+# If not found, install it
+brew install git  # macOS
+# or: sudo apt install git  # Linux
+
+# Initialize repo
+cd <project_dir> && git init && git add .gitignore
+```
+
+Update the agent config to enable git backup:
+
+```bash
+# Read config, add gitBackup, write back
+node -e "
+const fs = require('fs');
+const p = '<project_dir>/.instar/config.json';
+const c = JSON.parse(fs.readFileSync(p, 'utf-8'));
+c.gitBackup = { enabled: true, autoPush: true };
+fs.writeFileSync(p, JSON.stringify(c, null, 2));
+console.log('gitBackup enabled');
+"
+```
+
+Tell the user: "Local backup initialized. Your agent's data is now tracked by git."
+
+### Step 4.5b: Connect to GitHub (Cloud Backup)
+
+This is the part that protects against machine loss. Present it conversationally:
+
+> Your agent's data is backed up locally with git. Want to also back it up to the cloud?
+>
+> This creates a **private** GitHub repository so your agent's data survives even if this machine is lost.
+>
+> You'll need a free GitHub account. Already have one? Great. Don't have one? I'll walk you through it.
+
+**Default: YES.** If the user declines, accept in one sentence and move on.
+
+If they accept:
+
+**Step 1: Check for `gh` CLI**
+
+```bash
+which gh
+```
+
+If not found:
+```bash
+brew install gh  # macOS
+# or: sudo apt install gh  # Linux
+```
+
+**Step 2: Check GitHub auth**
+
+```bash
+gh auth status 2>&1
+```
+
+If not authenticated, walk them through it:
+
+> I need to connect to your GitHub account. This opens your browser for a secure sign-in.
+
+```bash
+gh auth login --web --git-protocol https
+```
+
+This is an interactive command that opens the browser — run it with `stdio: 'inherit'` so the user sees the auth flow. Wait for it to complete.
+
+**Step 3: Create private repo**
+
+```bash
+cd <project_dir> && gh repo create instar-<agent-name> --private --source .
+```
+
+If the repo already exists (from a previous install), connect to it:
+```bash
+WHOAMI=$(gh api user --jq '.login')
+cd <project_dir> && git remote add origin "https://github.com/${WHOAMI}/instar-<agent-name>.git"
+```
+
+Tell the user: "Cloud backup is set up. Your agent's data will be automatically backed up to GitHub."
+
+**If anything fails**, don't block the setup. Tell the user what happened and that their agent can help complete it later via Telegram.
+
 ## Phase 5: Launch & Handoff
 
 **Do NOT ask "want me to start the server?" — just start it.** There is no reason not to. The whole point of setup is to get the agent running.
