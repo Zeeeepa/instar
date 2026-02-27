@@ -239,23 +239,11 @@ export class UpdateChecker {
         const errMsg = err instanceof Error ? err.message : String(err);
         const errStderr = (err as Error & { stderr?: string }).stderr || '';
         // If the binary doesn't support the migrate command at all (very old version),
-        // or if it returned non-JSON output (old binary ran a different default command),
+        // or returned non-JSON output (old binary ran a different default command),
         // skip silently — the in-memory migrator on server startup handles it.
         const isNonJsonOutput = errMsg.includes('is not valid JSON') || errMsg.includes('JSON') || errMsg.includes('Unexpected token');
         const isMissingCommand = errStderr.includes('unknown command') || errMsg.includes('unknown command') || isNonJsonOutput;
-
-        // Fallback: run in-memory migrator (better than nothing)
-        try {
-          const migrator = new PostUpdateMigrator(this.migratorConfig);
-          const migration = migrator.migrate();
-          if (migration.upgraded.length > 0) {
-            migrationSummary = ` Intelligence download (fallback): ${migration.upgraded.length} files upgraded (${migration.upgraded.join(', ')}).`;
-          }
-        } catch (fallbackErr) {
-          migrationSummary = ` Post-update migration failed: ${errMsg}.`;
-        }
-
-        // Only fire degradation for unexpected failures — not for PATH conflicts with old binaries
+        // Report degradation early (before fallback) for unexpected failures only
         if (!isMissingCommand) {
           const detail = errStderr ? ` (stderr: ${errStderr.slice(0, 200)})` : '';
           DegradationReporter.getInstance().report({
@@ -265,6 +253,16 @@ export class UpdateChecker {
             reason: `Why: ${errMsg}${detail}`,
             impact: 'Agent configuration may be stale after update',
           });
+        }
+        // Fallback: run in-memory migrator (better than nothing)
+        try {
+          const migrator = new PostUpdateMigrator(this.migratorConfig);
+          const migration = migrator.migrate();
+          if (migration.upgraded.length > 0) {
+            migrationSummary = ` Intelligence download (fallback): ${migration.upgraded.length} files upgraded (${migration.upgraded.join(', ')}).`;
+          }
+        } catch (fallbackErr) {
+          migrationSummary = ` Post-update migration failed: ${errMsg}.`;
         }
       }
     }
