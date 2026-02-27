@@ -149,6 +149,50 @@ export const TOPIC_STYLE = {
   ALERT:   { color: 16766590, emoji: '🔔' },
 } as const;
 
+/**
+ * Keyword → emoji mapping for smart topic emoji selection.
+ * First match wins, so more specific patterns come first.
+ * Falls back to 💬 for unmatched names.
+ */
+const TOPIC_EMOJI_KEYWORDS: Array<{ keywords: string[]; emoji: string }> = [
+  { keywords: ['debug', 'bug', 'fix', 'issue', 'error'],   emoji: '🐛' },
+  { keywords: ['deploy', 'release', 'ship', 'launch'],      emoji: '🚀' },
+  { keywords: ['test', 'testing', 'qa', 'cypress', 'jest'], emoji: '🧪' },
+  { keywords: ['review', 'pr', 'code review'],              emoji: '👀' },
+  { keywords: ['research', 'explore', 'investigate'],        emoji: '🔍' },
+  { keywords: ['design', 'ui', 'ux', 'frontend', 'css'],    emoji: '🎨' },
+  { keywords: ['doc', 'docs', 'readme', 'write', 'draft'],  emoji: '📝' },
+  { keywords: ['build', 'ci', 'pipeline', 'compile'],       emoji: '🏗️' },
+  { keywords: ['security', 'auth', 'permission', 'access'], emoji: '🔒' },
+  { keywords: ['perf', 'performance', 'speed', 'optimize'],  emoji: '⚡' },
+  { keywords: ['data', 'database', 'db', 'sql', 'prisma'],  emoji: '🗄️' },
+  { keywords: ['api', 'endpoint', 'route', 'server'],       emoji: '🔌' },
+  { keywords: ['monitor', 'metric', 'observ', 'dashboard'], emoji: '📊' },
+  { keywords: ['alert', 'incident', 'urgent', 'critical'],  emoji: '🚨' },
+  { keywords: ['brainstorm', 'idea', 'think', 'plan'],      emoji: '💡' },
+  { keywords: ['migrate', 'migration', 'upgrade'],          emoji: '🔄' },
+  { keywords: ['config', 'setting', 'env'],                 emoji: '⚙️' },
+  { keywords: ['email', 'mail', 'newsletter', 'outreach'],  emoji: '📧' },
+  { keywords: ['chat', 'talk', 'conversation', 'discuss'],  emoji: '💬' },
+  { keywords: ['learn', 'study', 'tutorial', 'course'],     emoji: '📚' },
+  { keywords: ['money', 'payment', 'billing', 'cost'],      emoji: '💰' },
+  { keywords: ['clean', 'cleanup', 'refactor', 'tidy'],     emoji: '🧹' },
+];
+
+/**
+ * Select an appropriate emoji for a topic based on its name.
+ * Matches keywords case-insensitively. Falls back to 💬 for unmatched names.
+ */
+export function selectTopicEmoji(topicName: string): string {
+  const lower = topicName.toLowerCase();
+  for (const entry of TOPIC_EMOJI_KEYWORDS) {
+    if (entry.keywords.some(kw => lower.includes(kw))) {
+      return entry.emoji;
+    }
+  }
+  return TOPIC_STYLE.SESSION.emoji; // 💬 default
+}
+
 /** Tracks a pending message for stall detection */
 interface PendingMessage {
   topicId: number;

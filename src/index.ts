@@ -155,7 +155,7 @@ export type { CoherenceCheckResult as CoherenceMonitorCheckResult, CoherenceRepo
 export { SleepWakeDetector } from './core/SleepWakeDetector.js';
 
 // Messaging
-export { TelegramAdapter, TOPIC_STYLE } from './messaging/TelegramAdapter.js';
+export { TelegramAdapter, TOPIC_STYLE, selectTopicEmoji } from './messaging/TelegramAdapter.js';
 export type { TelegramConfig } from './messaging/TelegramAdapter.js';
 export { NotificationBatcher } from './messaging/NotificationBatcher.js';
 export type { NotificationTier, BatchedNotification, BatcherConfig, BatcherStats } from './messaging/NotificationBatcher.js';

@@ -18,7 +18,7 @@ import { SessionManager } from '../core/SessionManager.js';
 import { StateManager } from '../core/StateManager.js';
 import { JobScheduler } from '../scheduler/JobScheduler.js';
 import { AgentServer } from '../server/AgentServer.js';
-import { TelegramAdapter, TOPIC_STYLE } from '../messaging/TelegramAdapter.js';
+import { TelegramAdapter, TOPIC_STYLE, selectTopicEmoji } from '../messaging/TelegramAdapter.js';
 import { RelationshipManager } from '../core/RelationshipManager.js';
 import { ClaudeCliIntelligenceProvider } from '../core/ClaudeCliIntelligenceProvider.js';
 import { AnthropicIntelligenceProvider } from '../core/AnthropicIntelligenceProvider.js';
@@ -548,7 +548,8 @@ function wireTelegramRouting(
     if (newMatch) {
       const sessionName = newMatch[1]?.trim() || null;
       const topicName = sessionName || `session-${new Date().toISOString().slice(5, 16).replace('T', '-').replace(':', '')}`;
-      const topicDisplayName = `${TOPIC_STYLE.SESSION.emoji} ${topicName}`;
+      const topicEmoji = sessionName ? selectTopicEmoji(sessionName) : TOPIC_STYLE.SESSION.emoji;
+      const topicDisplayName = `${topicEmoji} ${topicName}`;
 
       (async () => {
         try {
