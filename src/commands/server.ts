@@ -18,7 +18,7 @@ import { SessionManager } from '../core/SessionManager.js';
 import { StateManager } from '../core/StateManager.js';
 import { JobScheduler } from '../scheduler/JobScheduler.js';
 import { AgentServer } from '../server/AgentServer.js';
-import { TelegramAdapter } from '../messaging/TelegramAdapter.js';
+import { TelegramAdapter, TOPIC_STYLE } from '../messaging/TelegramAdapter.js';
 import { RelationshipManager } from '../core/RelationshipManager.js';
 import { ClaudeCliIntelligenceProvider } from '../core/ClaudeCliIntelligenceProvider.js';
 import { AnthropicIntelligenceProvider } from '../core/AnthropicIntelligenceProvider.js';
@@ -57,6 +57,8 @@ import { AdaptiveTrust } from '../core/AdaptiveTrust.js';
 import { DegradationReporter } from '../monitoring/DegradationReporter.js';
 import { LiveConfig } from '../config/LiveConfig.js';
 import { CoherenceMonitor } from '../monitoring/CoherenceMonitor.js';
+import { NotificationBatcher } from '../messaging/NotificationBatcher.js';
+import type { NotificationTier } from '../messaging/NotificationBatcher.js';
 import type { PipelineMessage } from '../types/pipeline.js';
 import { toPipeline, toInjection, toLogEntry, formatHistoryLine } from '../types/pipeline.js';
 import type { Message, IntelligenceProvider } from '../core/types.js';
@@ -546,10 +548,11 @@ function wireTelegramRouting(
     if (newMatch) {
       const sessionName = newMatch[1]?.trim() || null;
       const topicName = sessionName || `session-${new Date().toISOString().slice(5, 16).replace('T', '-').replace(':', '')}`;
+      const topicDisplayName = `${TOPIC_STYLE.SESSION.emoji} ${topicName}`;
 
       (async () => {
         try {
-          const topic = await telegram.findOrCreateForumTopic(topicName, 9367192); // Green, dedup by name
+          const topic = await telegram.findOrCreateForumTopic(topicDisplayName, TOPIC_STYLE.SESSION.color);
           const newSession = await sessionManager.spawnInteractiveSession(
             `[telegram:${topic.topicId}] New session started. (IMPORTANT: Relay all responses back via: cat <<'EOF' | .claude/scripts/telegram-reply.sh ${topic.topicId}\nYour response\nEOF)`,
             topicName,
@@ -648,8 +651,8 @@ async function ensureAgentAttentionTopic(
 
   try {
     const topic = await telegram.createForumTopic(
-      'Agent Attention',
-      9367192, // Green — direct line to user
+      `${TOPIC_STYLE.ALERT.emoji} Attention`,
+      TOPIC_STYLE.ALERT.color, // Yellow — needs user action
     );
     state.set('agent-attention-topic', topic.topicId);
     await telegram.sendToTopic(topic.topicId,
@@ -678,8 +681,8 @@ async function ensureAgentUpdatesTopic(
 
   try {
     const topic = await telegram.createForumTopic(
-      'Agent Updates',
-      7322096, // Blue — informational
+      `${TOPIC_STYLE.INFO.emoji} Updates`,
+      TOPIC_STYLE.INFO.color, // Blue — informational
     );
     state.set('agent-updates-topic', topic.topicId);
     await telegram.sendToTopic(topic.topicId,
@@ -788,6 +791,36 @@ export async function startServer(options: StartOptions): Promise<void> {
     watchPaths: ['updates.autoApply', 'sessions.maxSessions', 'monitoring'],
   });
   liveConfig.start();
+
+  // NotificationBatcher: consolidate all Telegram notifications into tiered delivery.
+  // IMMEDIATE = user needs to act NOW (quota exhausted, critical stall)
+  // SUMMARY = batched every 30 min (degradations, coherence, orphan reports)
+  // DIGEST = batched every 2 hrs (updates, wake events, routine lifecycle)
+  // Principle: Log everything, notify selectively.
+  const notificationBatcher = new NotificationBatcher({
+    enabled: true,
+    summaryIntervalMinutes: 30,
+    digestIntervalMinutes: 120,
+  });
+
+  // State reference — set once StateManager is created, used by notify()
+  let _notifyState: { get<T>(key: string): T | null | undefined } | null = null;
+
+  /**
+   * Central notification gateway — ALL non-interactive Telegram notifications should go through here.
+   * Interactive messages (session replies, user-facing responses) still use sendToTopic directly.
+   */
+  function notify(tier: NotificationTier, category: string, message: string, topicId?: number): void {
+    const resolvedTopicId = topicId ?? _notifyState?.get<number>('agent-attention-topic') ?? 0;
+    if (!resolvedTopicId) return;
+    notificationBatcher.enqueue({
+      tier,
+      category,
+      message,
+      timestamp: new Date(),
+      topicId: resolvedTopicId,
+    }).catch(() => { /* @silent-fallback-ok */ });
+  }
 
   // Migration: fix autoApply default bug from init.ts (pre-0.9.47).
   // init.ts wrote `updates.autoApply: false` despite the intended default being true.
@@ -900,6 +933,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     }
 
     const state = new StateManager(config.stateDir);
+    _notifyState = state; // Wire state into notify() gateway
 
     // Multi-machine coordinator — determines role (awake/standby) before other components start.
     // If standby, StateManager becomes read-only and processing is gated.
@@ -1062,6 +1096,13 @@ export async function startServer(options: StartOptions): Promise<void> {
       await telegram.start();
       console.log(pc.green(`  Telegram connected (stall alerts: ${sharedIntelligence ? 'LLM-gated' : 'timer-only'})`));
 
+      // Wire NotificationBatcher to Telegram and start batching
+      notificationBatcher.setSendFunction(
+        async (topicId, text) => { await telegram!.sendToTopic(topicId, text); return { messageId: 0 }; }
+      );
+      notificationBatcher.start();
+      console.log(pc.green('  Notification batcher enabled (SUMMARY: 30m, DIGEST: 2h)'));
+
       // Set up account switcher (Keychain-based OAuth account swapping)
       const accountSwitcher = new AccountSwitcher();
 
@@ -1069,7 +1110,11 @@ export async function startServer(options: StartOptions): Promise<void> {
       const quotaNotifier = new QuotaNotifier(config.stateDir);
       const alertTopicId = state.get<number>('agent-attention-topic') ?? null;
       quotaNotifier.configure(
-        async (topicId, text) => { await telegram!.sendToTopic(topicId, text); },
+        async (_topicId, text) => {
+          // Quota exhaustion is IMMEDIATE; warnings are SUMMARY
+          const tier: NotificationTier = text.includes('EXHAUSTED') || text.includes('critical') ? 'IMMEDIATE' : 'SUMMARY';
+          notify(tier, 'quota', text);
+        },
         alertTopicId,
       );
 
@@ -1482,27 +1527,18 @@ export async function startServer(options: StartOptions): Promise<void> {
     // Start MemoryPressureMonitor (platform-aware memory tracking)
     const { MemoryPressureMonitor } = await import('../monitoring/MemoryPressureMonitor.js');
     const memoryMonitor = new MemoryPressureMonitor({ stateDir: config.stateDir });
-    let lastMemoryNotification = 0;
-    const MEMORY_NOTIFICATION_COOLDOWN_MS = 5 * 60_000; // 5 minutes between notifications
+    // Memory notification cooldown removed — handled by NotificationBatcher (SUMMARY tier)
     memoryMonitor.on('stateChange', ({ from, to, state: memState }: { from: string; to: string; state: any }) => {
       // Gate scheduler spawning on memory pressure
       if (scheduler && (to === 'elevated' || to === 'critical')) {
         console.log(`[MemoryPressure] ${from} -> ${to} — scheduler should respect canSpawnSession()`);
       }
-      // Alert via Telegram attention topic (with cooldown to prevent spam)
-      if (telegram && to !== 'normal') {
-        const now = Date.now();
-        if (now - lastMemoryNotification >= MEMORY_NOTIFICATION_COOLDOWN_MS) {
-          lastMemoryNotification = now;
-          const attentionTopicId = state.get<number>('agent-attention-topic');
-          if (attentionTopicId) {
-            telegram.sendToTopic(attentionTopicId,
-              `Memory ${to}: ${memState.pressurePercent.toFixed(1)}% used, ${memState.freeGB.toFixed(1)}GB free (trend: ${memState.trend})`
-            ).catch(() => { /* @silent-fallback-ok — notification loss */ });
-          }
-        } else {
-          console.log(`[MemoryPressure] ${from} -> ${to} (notification suppressed — cooldown)`);
-        }
+      // Alert via batcher — critical memory is IMMEDIATE, elevated is SUMMARY
+      if (to !== 'normal') {
+        const tier: NotificationTier = to === 'critical' ? 'IMMEDIATE' : 'SUMMARY';
+        notify(tier, 'system',
+          `Memory ${to}: ${memState.pressurePercent.toFixed(1)}% used, ${memState.freeGB.toFixed(1)}GB free (trend: ${memState.trend})`
+        );
       }
     });
     memoryMonitor.start();
@@ -1529,14 +1565,9 @@ export async function startServer(options: StartOptions): Promise<void> {
       externalReportAgeMs: 14_400_000, // Report external processes after 4 hours
       highMemoryThresholdMB: 500,  // Flag processes using >500MB
       autoKillOrphans: true,       // Auto-kill Instar orphans (safe — only project-prefixed tmux sessions)
-      alertCallback: telegram
-        ? async (msg: string) => {
-            const attentionTopicId = state.get<number>('agent-attention-topic');
-            if (attentionTopicId) {
-              await telegram.sendToTopic(attentionTopicId, msg);
-            }
-          }
-        : undefined,
+      alertCallback: async (msg: string) => {
+        notify('SUMMARY', 'system', msg);
+      },
     });
     orphanReaper.start();
     _orphanReaper = orphanReaper;
@@ -1553,10 +1584,9 @@ export async function startServer(options: StartOptions): Promise<void> {
       onIncoherence: (report) => {
         const failedChecks = report.checks.filter(c => !c.passed && !c.corrected);
         const summary = failedChecks.map(c => `• ${c.name}: ${c.message}`).join('\n');
-        const alertTopicId = state.get<number>('agent-attention-topic');
-        if (telegram && alertTopicId) {
-          telegram.sendToTopic(alertTopicId, `⚠️ Coherence alert (${report.failed} issue${report.failed > 1 ? 's' : ''}):\n${summary}`).catch(() => {});
-        }
+        notify('SUMMARY', 'system',
+          `Coherence: ${report.failed} issue(s):\n${summary}`
+        );
       },
     });
     coherenceMonitor.start();
@@ -1602,13 +1632,10 @@ export async function startServer(options: StartOptions): Promise<void> {
         }
       }
 
-      // Notify via Telegram attention topic
-      if (telegram) {
-        const attentionTopicId = state.get<number>('agent-attention-topic');
-        if (attentionTopicId) {
-          telegram.sendToTopic(attentionTopicId, `Wake detected after ~${event.sleepDurationSeconds}s sleep. Sessions re-validated.`).catch(() => { /* @silent-fallback-ok — notification loss */ });
-        }
-      }
+      // Notify via batcher — wake events are informational, not urgent
+      notify('DIGEST', 'system',
+        `Wake detected after ~${event.sleepDurationSeconds}s sleep. Sessions re-validated.`
+      );
     });
     sleepWakeDetector.start();
 
@@ -1701,7 +1728,11 @@ export async function startServer(options: StartOptions): Promise<void> {
       const alertTopicId = state.get<number>('agent-attention-topic') ?? null;
       degradationReporter.connectDownstream({
         feedbackSubmitter: feedback ? (item) => feedback!.submit(item) : undefined,
-        telegramSender: telegram ? (topicId, text) => telegram!.sendToTopic(topicId, text) : undefined,
+        // Route degradation alerts through the batcher — these are important but not urgent
+        telegramSender: (_topicId, text) => {
+          notify('SUMMARY', 'system', text);
+          return Promise.resolve();
+        },
         alertTopicId,
       });
     }
@@ -1881,6 +1912,8 @@ export async function startServer(options: StartOptions): Promise<void> {
       gitSync?.stop();
       coordinator.stop();
       coherenceMonitor.stop();
+      await notificationBatcher.flushAll(); // Drain pending notifications before exit
+      notificationBatcher.stop();
       memoryMonitor.stop();
       caffeinateManager.stop();
       sleepWakeDetector.stop();

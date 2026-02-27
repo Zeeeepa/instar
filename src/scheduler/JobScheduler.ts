@@ -18,6 +18,7 @@ import type { SessionManager } from '../core/SessionManager.js';
 import type { StateManager } from '../core/StateManager.js';
 import type { QuotaTracker } from '../monitoring/QuotaTracker.js';
 import type { MessagingAdapter, SkipReason } from '../core/types.js';
+import { TOPIC_STYLE } from '../messaging/TelegramAdapter.js';
 import type { JobDefinition, JobSchedulerConfig, JobState, JobPriority } from '../core/types.js';
 import type { TelegramAdapter } from '../messaging/TelegramAdapter.js';
 
@@ -536,8 +537,8 @@ export class JobScheduler {
         // Topic may have been deleted — try to recreate
         try {
           const newTopic = await this.telegram.findOrCreateForumTopic(
-            `Job: ${job.name}`,
-            7322096, // Blue for jobs
+            `${TOPIC_STYLE.JOB.emoji} Job: ${job.name}`,
+            TOPIC_STYLE.JOB.color,
           );
           job.topicId = newTopic.topicId;
           this.saveJobTopicMapping(job.slug, newTopic.topicId);
@@ -588,8 +589,8 @@ export class JobScheduler {
       // Create a new topic for this job
       try {
         const topic = await this.telegram.findOrCreateForumTopic(
-          `Job: ${job.name}`,
-          7322096, // Blue for automated jobs
+          `${TOPIC_STYLE.JOB.emoji} Job: ${job.name}`,
+          TOPIC_STYLE.JOB.color,
         );
         job.topicId = topic.topicId;
         mappings[job.slug] = topic.topicId;

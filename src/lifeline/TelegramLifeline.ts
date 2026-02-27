@@ -674,8 +674,8 @@ export class TelegramLifeline {
     try {
       const result = await this.apiCall('createForumTopic', {
         chat_id: this.config.chatId,
-        name: 'Lifeline',
-        icon_color: 9367192, // green
+        name: '🛡️ Lifeline',
+        icon_color: 9367192, // green — system infrastructure
       }) as { message_thread_id: number };
 
       const topicId = result.message_thread_id;

@@ -131,6 +131,24 @@ const PRIORITY_COLOR: Record<string, number> = {
   LOW: 13338331,      // purple
 };
 
+/**
+ * Standard topic styles for visual organization in Telegram forum.
+ * Colors are the 6 values Telegram's Bot API accepts for icon_color.
+ * Emojis prefix topic names for at-a-glance scanning.
+ */
+export const TOPIC_STYLE = {
+  /** Green — core infrastructure (Lifeline) */
+  SYSTEM:  { color: 9367192,  emoji: '🛡️' },
+  /** Purple — automated recurring jobs */
+  JOB:     { color: 13338331, emoji: '⚙️' },
+  /** Green — interactive user sessions */
+  SESSION: { color: 9367192,  emoji: '💬' },
+  /** Blue — informational (Dashboard, Updates) */
+  INFO:    { color: 7322096,  emoji: '📢' },
+  /** Yellow — needs user attention */
+  ALERT:   { color: 16766590, emoji: '🔔' },
+} as const;
+
 /** Tracks a pending message for stall detection */
 interface PendingMessage {
   topicId: number;
@@ -447,6 +465,32 @@ export class TelegramAdapter implements MessagingAdapter {
   }
 
   /**
+   * Edit a forum topic's name and/or icon color.
+   * Best-effort — silently ignores failures (topic may not exist).
+   */
+  async editForumTopic(topicId: number, name?: string, iconColor?: number): Promise<boolean> {
+    const params: Record<string, unknown> = {
+      chat_id: this.config.chatId,
+      message_thread_id: topicId,
+    };
+    if (name !== undefined) params.name = name;
+    if (iconColor !== undefined) params.icon_color = iconColor;
+
+    try {
+      await this.apiCall('editForumTopic', params);
+      if (name) {
+        this.topicToName.set(topicId, name);
+        this.saveRegistry();
+      }
+      console.log(`[telegram] Renamed topic ${topicId} → "${name}"`);
+      return true;
+    } catch {
+      // @silent-fallback-ok — best-effort rename
+      return false;
+    }
+  }
+
+  /**
    * Find an existing topic by name, or create a new one if none exists.
    * Prevents duplicate topics when sessions respawn or the server restarts.
    */
@@ -474,10 +518,11 @@ export class TelegramAdapter implements MessagingAdapter {
    * Called on startup and can be called periodically.
    */
   async ensureLifelineTopic(): Promise<number | null> {
+    const styledName = `${TOPIC_STYLE.SYSTEM.emoji} Lifeline`;
     if (!this.config.lifelineTopicId) {
       // No lifeline topic configured — create one
       try {
-        const topic = await this.createForumTopic('Lifeline', 9367192); // Green
+        const topic = await this.createForumTopic(styledName, TOPIC_STYLE.SYSTEM.color);
         this.config.lifelineTopicId = topic.topicId;
         this.persistLifelineTopicId(topic.topicId);
         console.log(`[telegram] Created Lifeline topic: ${topic.topicId}`);
@@ -497,6 +542,11 @@ export class TelegramAdapter implements MessagingAdapter {
         message_thread_id: this.config.lifelineTopicId,
         action: 'typing',
       });
+      // Best-effort rename to styled name if it doesn't match
+      const currentName = this.topicToName.get(this.config.lifelineTopicId);
+      if (currentName && !currentName.includes(TOPIC_STYLE.SYSTEM.emoji)) {
+        await this.editForumTopic(this.config.lifelineTopicId, styledName, TOPIC_STYLE.SYSTEM.color);
+      }
       console.log(`[telegram] Lifeline topic verified: ${this.config.lifelineTopicId}`);
       return this.config.lifelineTopicId;
     } catch (err) {
@@ -506,7 +556,7 @@ export class TelegramAdapter implements MessagingAdapter {
           errStr.includes('TOPIC_CLOSED') || errStr.includes('not found')) {
         console.log(`[telegram] Lifeline topic ${this.config.lifelineTopicId} was deleted — recreating`);
         try {
-          const topic = await this.createForumTopic('Lifeline', 9367192);
+          const topic = await this.createForumTopic(styledName, TOPIC_STYLE.SYSTEM.color);
           this.config.lifelineTopicId = topic.topicId;
           this.persistLifelineTopicId(topic.topicId);
           console.log(`[telegram] Recreated Lifeline topic: ${topic.topicId}`);
@@ -584,9 +634,10 @@ export class TelegramAdapter implements MessagingAdapter {
    * Same resilience pattern as the lifeline topic.
    */
   async ensureDashboardTopic(): Promise<number | null> {
+    const styledName = `${TOPIC_STYLE.INFO.emoji} Dashboard`;
     if (!this.config.dashboardTopicId) {
       try {
-        const topic = await this.createForumTopic('Dashboard', 7322096); // Blue
+        const topic = await this.createForumTopic(styledName, TOPIC_STYLE.INFO.color);
         this.config.dashboardTopicId = topic.topicId;
         this.persistDashboardTopicId(topic.topicId);
         console.log(`[telegram] Created Dashboard topic: ${topic.topicId}`);
@@ -604,6 +655,11 @@ export class TelegramAdapter implements MessagingAdapter {
         message_thread_id: this.config.dashboardTopicId,
         action: 'typing',
       });
+      // Best-effort rename to styled name
+      const currentName = this.topicToName.get(this.config.dashboardTopicId);
+      if (currentName && !currentName.includes(TOPIC_STYLE.INFO.emoji)) {
+        await this.editForumTopic(this.config.dashboardTopicId, styledName, TOPIC_STYLE.INFO.color);
+      }
       return this.config.dashboardTopicId;
     } catch (err) {
       const errStr = String(err);
@@ -611,7 +667,7 @@ export class TelegramAdapter implements MessagingAdapter {
           errStr.includes('TOPIC_CLOSED') || errStr.includes('not found')) {
         console.log(`[telegram] Dashboard topic ${this.config.dashboardTopicId} was deleted — recreating`);
         try {
-          const topic = await this.createForumTopic('Dashboard', 7322096);
+          const topic = await this.createForumTopic(styledName, TOPIC_STYLE.INFO.color);
           this.config.dashboardTopicId = topic.topicId;
           this.persistDashboardTopicId(topic.topicId);
           return topic.topicId;
