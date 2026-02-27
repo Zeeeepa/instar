@@ -296,7 +296,7 @@ export class AutoUpdater {
       requestedBy: 'auto-updater',
       targetVersion: newVersion,
       previousVersion: this.updateChecker.getInstalledVersion(),
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 min TTL
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1 hour TTL (was 10 min — too short for foreground mode)
       pid: process.pid,
     };
     try {
@@ -305,7 +305,7 @@ export class AutoUpdater {
       const tmpPath = `${flagPath}.${process.pid}.tmp`;
       fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
       fs.renameSync(tmpPath, flagPath);
-      console.log(`[AutoUpdater] Restart requested — supervisor will handle (target: v${newVersion})`);
+      console.log(`[AutoUpdater] Restart requested — supervisor or ForegroundRestartWatcher will handle (target: v${newVersion})`);
     } catch (err) {
       console.error(`[AutoUpdater] Failed to write restart request: ${err}`);
       console.error('[AutoUpdater] Update was applied but a manual restart is needed.');

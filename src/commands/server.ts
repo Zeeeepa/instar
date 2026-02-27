@@ -59,6 +59,7 @@ import { LiveConfig } from '../config/LiveConfig.js';
 import { CoherenceMonitor } from '../monitoring/CoherenceMonitor.js';
 import { ProcessIntegrity } from '../core/ProcessIntegrity.js';
 import { StaleProcessGuard } from '../core/StaleProcessGuard.js';
+import { ForegroundRestartWatcher } from '../core/ForegroundRestartWatcher.js';
 import { NotificationBatcher } from '../messaging/NotificationBatcher.js';
 import type { NotificationTier } from '../messaging/NotificationBatcher.js';
 import type { PipelineMessage } from '../types/pipeline.js';
@@ -1526,6 +1527,22 @@ export async function startServer(options: StartOptions): Promise<void> {
       liveConfig,
     );
     autoUpdater.start();
+
+    // ForegroundRestartWatcher — the critical gap fix (v0.9.72).
+    // In foreground mode there's no supervisor to pick up restart-requested.json.
+    // Without this, AutoUpdater installs the update, writes the flag, and nobody
+    // acts on it — the process stays stale forever (the Luna/v0.9.70 incident).
+    const restartWatcher = new ForegroundRestartWatcher({
+      stateDir: config.stateDir,
+      onRestartDetected: async (request) => {
+        // IMMEDIATE tier sends directly — no batching delay
+        notify('IMMEDIATE', 'system',
+          `Update installed: v${request.previousVersion} → v${request.targetVersion}\n` +
+          `Restarting now to load new code...`
+        );
+      },
+    });
+    restartWatcher.start();
 
     // Set up Telegraph publishing (auto-enabled when config exists or Telegram is configured)
     let publisher: TelegraphService | undefined;

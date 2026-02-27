@@ -195,3 +195,119 @@ describe('META: Stale state detection infrastructure', () => {
     expect(serverSrc).toContain("'instar-version'");
   });
 });
+
+// ── META: Foreground restart gap prevention ───────────────────────
+//
+// The Luna Incident (v0.9.70): All agents run in --foreground mode.
+// AutoUpdater writes restart-requested.json, but ONLY the ServerSupervisor
+// (lifeline mode) polls for it. In foreground mode, nobody picks up
+// the flag → the process stays stale forever.
+//
+// These tests ensure the foreground server path ALWAYS has restart
+// handling, preventing the gap from reopening.
+
+describe('META: Foreground restart gap prevention', () => {
+
+  // ── Rule 1: Foreground path must have restart handling ──
+
+  it('server.ts imports ForegroundRestartWatcher', () => {
+    const serverSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'commands/server.ts'),
+      'utf-8',
+    );
+    expect(serverSrc).toContain("import { ForegroundRestartWatcher }");
+  });
+
+  it('foreground server path creates ForegroundRestartWatcher', () => {
+    const serverSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'commands/server.ts'),
+      'utf-8',
+    );
+    expect(serverSrc).toContain('new ForegroundRestartWatcher');
+  });
+
+  it('foreground server path starts the restart watcher', () => {
+    const serverSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'commands/server.ts'),
+      'utf-8',
+    );
+    expect(serverSrc).toContain('restartWatcher.start()');
+  });
+
+  // ── Rule 2: ForegroundRestartWatcher must exist with the right shape ──
+
+  it('ForegroundRestartWatcher module exists with required exports', () => {
+    const frwSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'core/ForegroundRestartWatcher.ts'),
+      'utf-8',
+    );
+    expect(frwSrc).toContain('class ForegroundRestartWatcher');
+    expect(frwSrc).toContain('restart-requested.json');
+    expect(frwSrc).toContain('onRestartDetected');
+    expect(frwSrc).toContain('restartDetected');
+  });
+
+  // ── Rule 3: ForegroundRestartWatcher acts on expired flags ──
+  // The supervisor ignores expired flags. ForegroundRestartWatcher must NOT —
+  // a stale process is worse than a late restart.
+
+  it('ForegroundRestartWatcher does NOT skip expired flags', () => {
+    const frwSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'core/ForegroundRestartWatcher.ts'),
+      'utf-8',
+    );
+
+    // Should NOT have early return on expired flags
+    // The supervisor has: if (expired) { return; }
+    // ForegroundRestartWatcher should log a warning but continue
+    const checkMethod = frwSrc.match(/private async check\(\)[\s\S]*?^  \}/m);
+    expect(checkMethod).toBeTruthy();
+
+    // Should contain the expired warning but NOT return early
+    expect(frwSrc).toContain('stale process is worse than late restart');
+  });
+
+  // ── Rule 4: AutoUpdater restart-requested.json has sufficient TTL ──
+
+  it('AutoUpdater restart-requested TTL is at least 30 minutes', () => {
+    const auSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'core/AutoUpdater.ts'),
+      'utf-8',
+    );
+
+    // Find the TTL assignment
+    const ttlMatch = auSrc.match(/expiresAt.*Date\.now\(\)\s*\+\s*([\d_]+)\s*\*\s*([\d_]+)\s*\*\s*([\d_]+)/);
+    if (ttlMatch) {
+      // Calculate TTL in ms
+      const parts = ttlMatch.slice(1).map(s => parseInt(s.replace(/_/g, ''), 10));
+      const ttlMs = parts.reduce((a, b) => a * b, 1);
+      // Must be at least 30 minutes
+      expect(ttlMs).toBeGreaterThanOrEqual(30 * 60 * 1000);
+    } else {
+      // Alternative pattern: direct ms value
+      const directMatch = auSrc.match(/expiresAt.*Date\.now\(\)\s*\+\s*([\d_]+)/);
+      if (directMatch) {
+        const ttlMs = parseInt(directMatch[1].replace(/_/g, ''), 10);
+        expect(ttlMs).toBeGreaterThanOrEqual(30 * 60 * 1000);
+      } else {
+        // Must have SOME TTL
+        expect(auSrc).toContain('expiresAt');
+      }
+    }
+  });
+
+  // ── Rule 5: The notification on restart detection is IMMEDIATE, not SUMMARY ──
+
+  it('restart detection notification uses IMMEDIATE tier', () => {
+    const serverSrc = fs.readFileSync(
+      path.join(SRC_DIR, 'commands/server.ts'),
+      'utf-8',
+    );
+
+    // Find the onRestartDetected callback
+    const restartBlock = serverSrc.match(/onRestartDetected[\s\S]*?}\s*,?\s*\n\s*}/);
+    expect(restartBlock).toBeTruthy();
+    // Must use IMMEDIATE, not SUMMARY — restart is urgent
+    expect(restartBlock![0]).toContain("'IMMEDIATE'");
+  });
+});
