@@ -64,6 +64,12 @@ automatically created and maintained alongside existing vector indexes.
 
   const TEMPLATE_GUIDE = `# Upgrade Guide — vNEXT
 
+<!-- bump: patch -->
+<!-- Valid values: patch, minor, major -->
+<!-- patch = bug fixes, refactors, test additions, doc updates -->
+<!-- minor = new features, new APIs, new capabilities (backwards-compatible) -->
+<!-- major = breaking changes to existing APIs or behavior -->
+
 ## What Changed
 
 <!-- Describe what changed technically. What new features, APIs, behavioral changes? -->
@@ -302,5 +308,99 @@ Brief.
     expect(result2.exitCode).toBe(0);
     expect(result2.stdout).toContain('Upgrade guide validated');
     expect(result2.stdout).not.toContain('Finalized');
+  });
+
+  // 12. Fresh template includes bump declaration
+  it('fresh template includes bump type declaration', () => {
+    writePackageJson('1.2.3');
+    writeNextMd(VALID_GUIDE);
+
+    runLocalScript();
+
+    const template = fs.readFileSync(path.join(upgradesDir, 'NEXT.md'), 'utf-8');
+    expect(template).toContain('<!-- bump: patch -->');
+    expect(template).toContain('patch = bug fixes');
+    expect(template).toContain('minor = new features');
+    expect(template).toContain('major = breaking changes');
+  });
+
+  // 13. Warns when guide has no bump declaration
+  it('warns when existing guide has no bump type declaration', () => {
+    writePackageJson('1.2.3');
+    // Write a valid guide WITHOUT the bump declaration
+    writeVersionGuide('1.2.3', VALID_GUIDE.replace('vNEXT', 'v1.2.3'));
+
+    const result = runLocalScript();
+
+    expect(result.exitCode).toBe(0); // Advisory, not blocking
+    expect(result.stdout).toContain('bump: TYPE');
+  });
+
+  // 14. Warns when declared bump mismatches actual version change
+  it('warns when bump: minor declared but only a patch bump happened', () => {
+    // Write a "previous version" guide so the script can compare
+    writeVersionGuide('1.2.0', VALID_GUIDE.replace('vNEXT', 'v1.2.0'));
+
+    // Current version is 1.2.1 (patch bump) but guide declares minor
+    writePackageJson('1.2.1');
+    const minorGuide = `# Upgrade Guide — v1.2.1
+
+<!-- bump: minor -->
+
+## What Changed
+
+Added a major new search feature with new API endpoints.
+
+## What to Tell Your User
+
+- **New feature**: "Better search across your knowledge base."
+
+## Summary of New Capabilities
+
+| Capability | How to Use |
+|-----------|-----------|
+| New search | POST /semantic/search |
+`;
+    writeVersionGuide('1.2.1', minorGuide);
+
+    const result = runLocalScript();
+
+    expect(result.exitCode).toBe(0); // Advisory, not blocking
+    expect(result.stdout).toContain('minor');
+    expect(result.stdout).toContain('PATCH bump');
+  });
+
+  // 15. Warns when content describes new features but declares patch
+  it('warns when patch declared but guide describes new APIs', () => {
+    // Previous version guide
+    writeVersionGuide('1.2.0', VALID_GUIDE.replace('vNEXT', 'v1.2.0'));
+
+    // Current version is 1.2.1 (patch) but has new features
+    writePackageJson('1.2.1');
+    const patchWithFeatures = `# Upgrade Guide — v1.2.1
+
+<!-- bump: patch -->
+
+## What Changed
+
+Added a new API endpoint for exporting memory and a new command.
+
+## What to Tell Your User
+
+- **Memory export**: "Your knowledge can now be exported as markdown."
+
+## Summary of New Capabilities
+
+| Capability | How to Use |
+|-----------|-----------|
+| Export memory | POST /semantic/export-memory |
+`;
+    writeVersionGuide('1.2.1', patchWithFeatures);
+
+    const result = runLocalScript();
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('new features');
+    expect(result.stdout).toContain('MINOR version bump');
   });
 });

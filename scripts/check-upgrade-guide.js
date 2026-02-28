@@ -54,6 +54,12 @@ const MIN_LENGTH = 200;
 // Template for a fresh NEXT.md after finalization
 const NEXT_TEMPLATE = `# Upgrade Guide — vNEXT
 
+<!-- bump: patch -->
+<!-- Valid values: patch, minor, major -->
+<!-- patch = bug fixes, refactors, test additions, doc updates -->
+<!-- minor = new features, new APIs, new capabilities (backwards-compatible) -->
+<!-- major = breaking changes to existing APIs or behavior -->
+
 ## What Changed
 
 <!-- Describe what changed technically. What new features, APIs, behavioral changes? -->
@@ -103,6 +109,101 @@ function validateGuide(filePath) {
   }
 
   return issues;
+}
+
+/**
+ * Parse the declared bump type from a guide's <!-- bump: TYPE --> comment.
+ * Returns 'patch' | 'minor' | 'major' | null.
+ */
+function parseBumpType(content) {
+  const match = /<!--\s*bump:\s*(patch|minor|major)\s*-->/.exec(content);
+  return match ? match[1] : null;
+}
+
+/**
+ * Determine what kind of version bump actually happened
+ * by comparing the new version against the latest published version.
+ */
+function detectActualBump(newVersion, latestPublished) {
+  if (!latestPublished) return null; // Can't determine
+
+  const [newMaj, newMin, newPatch] = newVersion.split('.').map(Number);
+  const [pubMaj, pubMin, pubPatch] = latestPublished.split('.').map(Number);
+
+  if (newMaj > pubMaj) return 'major';
+  if (newMin > pubMin) return 'minor';
+  if (newPatch > pubPatch) return 'patch';
+  return null; // Same or downgrade
+}
+
+/**
+ * Get the latest published version from the upgrades/ directory.
+ * This is the highest versioned guide file, which approximates the last published version.
+ */
+function getLatestPublishedVersion() {
+  if (!fs.existsSync(upgradesDir)) return null;
+
+  const versions = fs.readdirSync(upgradesDir)
+    .map(f => /^(\d+)\.(\d+)\.(\d+)\.md$/.exec(f))
+    .filter(Boolean)
+    .map(m => ({ str: `${m[1]}.${m[2]}.${m[3]}`, parts: [+m[1], +m[2], +m[3]] }))
+    .sort((a, b) => {
+      for (let i = 0; i < 3; i++) {
+        if (a.parts[i] !== b.parts[i]) return a.parts[i] - b.parts[i];
+      }
+      return 0;
+    });
+
+  return versions.length > 0 ? versions[versions.length - 1].str : null;
+}
+
+/**
+ * Validate that the declared bump type matches the actual version change.
+ * Returns warnings (not errors) — advisory, not blocking.
+ */
+function validateBumpType(content) {
+  const warnings = [];
+  const declaredBump = parseBumpType(content);
+
+  if (!declaredBump) {
+    warnings.push('No <!-- bump: TYPE --> declaration found. Add one (patch, minor, or major) to declare the scope of changes.');
+    return warnings;
+  }
+
+  const latestPublished = getLatestPublishedVersion();
+  if (!latestPublished) return warnings; // Can't validate without history
+
+  const actualBump = detectActualBump(version, latestPublished);
+
+  if (!actualBump) return warnings; // Same version or can't determine
+
+  if (declaredBump === 'minor' && actualBump === 'patch') {
+    warnings.push(
+      `Guide declares "bump: minor" but version ${version} is only a PATCH bump from ${latestPublished}.` +
+      ` New features and APIs should use a minor version bump (e.g., npm version minor).`
+    );
+  } else if (declaredBump === 'major' && actualBump !== 'major') {
+    warnings.push(
+      `Guide declares "bump: major" but version ${version} is not a major bump from ${latestPublished}.` +
+      ` Breaking changes should use a major version bump (e.g., npm version major).`
+    );
+  } else if (declaredBump === 'patch' && actualBump === 'minor') {
+    // This is fine — minor bump for a patch is conservative, not wrong
+  }
+
+  // The key enforcement: if the content describes new features but declares "patch"
+  const hasNewFeatures = /new (api|endpoint|feature|command|capability)/i.test(content) ||
+    /\bPOST\b.*\/\w+/.test(content) ||
+    /\bGET\b.*\/\w+/.test(content);
+
+  if (declaredBump === 'patch' && hasNewFeatures && actualBump === 'patch') {
+    warnings.push(
+      `Guide declares "bump: patch" but appears to describe new features/APIs.` +
+      ` New capabilities should be a MINOR version bump. Consider: npm version minor`
+    );
+  }
+
+  return warnings;
 }
 
 /**
@@ -166,6 +267,15 @@ if (guideExists) {
     exitCode = 1;
   } else {
     console.log(`\n  ✓ Upgrade guide validated for v${version}.`);
+    // Advisory: check version bump type
+    const content = fs.readFileSync(guidePath, 'utf-8');
+    const bumpWarnings = validateBumpType(content);
+    if (bumpWarnings.length > 0) {
+      console.log(`\n  ⚠ Version bump advisory:`);
+      for (const w of bumpWarnings) {
+        console.log(`    ${w}`);
+      }
+    }
   }
 } else if (nextExists) {
   // NEXT.md exists — validate it, then finalize (rename → version file)
@@ -178,11 +288,24 @@ if (guideExists) {
     console.log(`\n  Fix the issues above before publishing.`);
     exitCode = 1;
   } else {
+    // Check version bump type BEFORE finalizing (advisory, not blocking)
+    const content = fs.readFileSync(nextPath, 'utf-8');
+    const bumpWarnings = validateBumpType(content);
+
     // Validation passed — finalize the guide
     finalizeGuide();
     console.log(`\n  ✓ Upgrade guide finalized and validated for v${version}.`);
     console.log(`  The published package will include upgrades/${version}.md`);
     console.log(`  Agents will receive this guide on their next update.`);
+
+    if (bumpWarnings.length > 0) {
+      console.log(`\n  ⚠ Version bump advisory:`);
+      for (const w of bumpWarnings) {
+        console.log(`    ${w}`);
+      }
+      console.log(`\n  Consider aborting and re-versioning if the bump type is wrong.`);
+      console.log(`  Semver policy: patch = fixes, minor = features, major = breaking`);
+    }
   }
 } else {
   // No guide at all — block the publish

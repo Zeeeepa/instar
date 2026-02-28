@@ -85,6 +85,7 @@ export class AgentServer {
     semanticMemory?: import('../memory/SemanticMemory.js').SemanticMemory;
     activitySentinel?: import('../monitoring/SessionActivitySentinel.js').SessionActivitySentinel;
     workingMemory?: import('../memory/WorkingMemoryAssembler.js').WorkingMemoryAssembler;
+    quotaManager?: import('../monitoring/QuotaManager.js').QuotaManager;
     messageRouter?: MessageRouter;
     coordinator?: MultiMachineCoordinator;
     localSigningKeyPem?: string;
@@ -222,6 +223,7 @@ export class AgentServer {
       semanticMemory: options.semanticMemory ?? null,
       activitySentinel: options.activitySentinel ?? null,
       workingMemory: options.workingMemory ?? null,
+      quotaManager: options.quotaManager ?? null,
       messageRouter: options.messageRouter ?? null,
       startTime: this.startTime,
     });

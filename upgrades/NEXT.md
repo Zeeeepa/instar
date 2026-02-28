@@ -1,5 +1,11 @@
 # Upgrade Guide — vNEXT
 
+<!-- bump: patch -->
+<!-- Valid values: patch, minor, major -->
+<!-- patch = bug fixes, refactors, test additions, doc updates -->
+<!-- minor = new features, new APIs, new capabilities (backwards-compatible) -->
+<!-- major = breaking changes to existing APIs or behavior -->
+
 ## What Changed
 
 <!-- Describe what changed technically. What new features, APIs, behavioral changes? -->

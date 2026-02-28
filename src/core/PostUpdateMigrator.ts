@@ -130,6 +130,20 @@ export class PostUpdateMigrator {
     } catch (err) {
       result.errors.push(`external-communication-guard.js: ${err instanceof Error ? err.message : String(err)}`);
     }
+
+    try {
+      fs.writeFileSync(path.join(hooksDir, 'scope-coherence-collector.js'), this.getScopeCoherenceCollectorHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/scope-coherence-collector.js (implementation depth tracking)');
+    } catch (err) {
+      result.errors.push(`scope-coherence-collector.js: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    try {
+      fs.writeFileSync(path.join(hooksDir, 'scope-coherence-checkpoint.js'), this.getScopeCoherenceCheckpointHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/scope-coherence-checkpoint.js (scope zoom-out checkpoint)');
+    } catch (err) {
+      result.errors.push(`scope-coherence-checkpoint.js: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**
@@ -688,7 +702,7 @@ The user has been talking to you (possibly for days). A generic greeting like "H
    * Get the content of a named hook template.
    * Used by init.ts to share canonical hook content without duplication.
    */
-  getHookContent(name: 'session-start' | 'compaction-recovery' | 'external-operation-gate' | 'deferral-detector' | 'post-action-reflection' | 'external-communication-guard'): string {
+  getHookContent(name: 'session-start' | 'compaction-recovery' | 'external-operation-gate' | 'deferral-detector' | 'post-action-reflection' | 'external-communication-guard' | 'scope-coherence-collector' | 'scope-coherence-checkpoint'): string {
     switch (name) {
       case 'session-start': return this.getSessionStartHook();
       case 'compaction-recovery': return this.getCompactionRecovery();
@@ -696,6 +710,8 @@ The user has been talking to you (possibly for days). A generic greeting like "H
       case 'deferral-detector': return this.getDeferralDetectorHook();
       case 'post-action-reflection': return this.getPostActionReflectionHook();
       case 'external-communication-guard': return this.getExternalCommunicationGuardHook();
+      case 'scope-coherence-collector': return this.getScopeCoherenceCollectorHook();
+      case 'scope-coherence-checkpoint': return this.getScopeCoherenceCheckpointHook();
     }
   }
 
@@ -1846,5 +1862,254 @@ echo "[\$(date -Iseconds)] Server restart initiated"
     }
     // Fallback: use inline version so migration doesn't fail
     return this.getConvergenceCheckInline();
+  }
+
+  // ── Scope Coherence Hooks ─────────────────────────────────────────
+
+  private getScopeCoherenceCollectorHook(): string {
+    const port = this.config.port;
+    return `#!/usr/bin/env node
+// Scope Coherence Collector — PostToolUse hook
+// Tracks implementation depth (Edit/Write/Bash) vs scope-checking actions (Read docs).
+// The 232nd Lesson: Implementation depth narrows scope.
+//
+// This hook records each tool action locally. Fast path — no network call.
+// State persists in .instar/state/scope-coherence.json via the server API.
+
+// CJS imports — this is a standalone hook script, not an ESM module
+const _r = require;
+const fs = _r('fs');
+const path = _r('path');
+
+const STATE_FILE = path.join('.instar', 'state', 'scope-coherence.json');
+const SCOPE_DOC_PATTERNS = [
+  'docs/', 'specs/', 'SPEC', 'PROPOSAL', 'DESIGN', 'ARCHITECTURE',
+  'README', '.instar/AGENT.md', '.instar/USER.md', '.claude/context/',
+  '.claude/grounding/', 'CLAUDE.md'
+];
+const SCOPE_DOC_EXTENSIONS = ['.md', '.txt', '.rst'];
+const QUERY_PREFIXES = [
+  'git status', 'git log', 'git diff', 'ls ', 'cat ', 'grep ',
+  'echo ', 'which ', 'head ', 'tail ', 'wc ', 'pwd', 'date'
+];
+const GROUNDING_SKILLS = ['grounding', 'dawn', 'reflect', 'introspect', 'session-bootstrap'];
+
+function isScopeDoc(filePath) {
+  if (!filePath) return false;
+  const lower = filePath.toLowerCase();
+  if (SCOPE_DOC_PATTERNS.some(p => lower.includes(p.toLowerCase()))) return true;
+  const parts = filePath.split('/');
+  const name = parts[parts.length - 1] || '';
+  const dot = name.lastIndexOf('.');
+  if (dot > 0) {
+    const ext = name.slice(dot);
+    const stem = name.slice(0, dot);
+    if (SCOPE_DOC_EXTENSIONS.includes(ext) && stem === stem.toUpperCase() && stem.length > 3) return true;
+  }
+  return false;
+}
+
+function loadState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+  } catch {}
+  return {
+    implementationDepth: 0, lastScopeCheck: null, lastCheckpointPrompt: null,
+    sessionDocsRead: [], checkpointsDismissed: 0, lastImplementationTool: null, sessionStart: null
+  };
+}
+
+function saveState(state) {
+  try {
+    const dir = path.dirname(STATE_FILE);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  } catch {}
+}
+
+let data = '';
+process.stdin.on('data', chunk => data += chunk);
+process.stdin.on('end', () => {
+  try {
+    const input = JSON.parse(data);
+    const toolName = input.tool_name || '';
+    const toolInput = input.tool_input || {};
+    const state = loadState();
+    const now = new Date().toISOString();
+    if (!state.sessionStart) state.sessionStart = now;
+
+    if (toolName === 'Edit' || toolName === 'Write') {
+      state.implementationDepth += 1;
+      state.lastImplementationTool = toolName + ':' + now;
+    } else if (toolName === 'Bash') {
+      const cmd = (toolInput.command || '').trim();
+      const isQuery = QUERY_PREFIXES.some(p => cmd.startsWith(p));
+      if (!isQuery && cmd.length > 10) {
+        state.implementationDepth += 1;
+        state.lastImplementationTool = 'Bash:' + now;
+      }
+    } else if (toolName === 'Read') {
+      const fp = toolInput.file_path || '';
+      if (isScopeDoc(fp)) {
+        state.implementationDepth = Math.max(0, state.implementationDepth - 10);
+        state.lastScopeCheck = now;
+        if (!state.sessionDocsRead.includes(fp)) {
+          state.sessionDocsRead.push(fp);
+          if (state.sessionDocsRead.length > 20) state.sessionDocsRead = state.sessionDocsRead.slice(-20);
+        }
+      }
+    } else if (toolName === 'Skill') {
+      const skill = toolInput.skill || '';
+      if (GROUNDING_SKILLS.includes(skill)) {
+        state.implementationDepth = 0;
+        state.lastScopeCheck = now;
+      }
+    }
+
+    saveState(state);
+  } catch {}
+  process.stdout.write(JSON.stringify({ decision: 'approve' }));
+  process.exit(0);
+});
+`;
+  }
+
+  private getScopeCoherenceCheckpointHook(): string {
+    const port = this.config.port;
+    return `#!/usr/bin/env node
+// Scope Coherence Checkpoint — Stop hook
+// The structural zoom-out. Forces agents to step back and check the big picture
+// when they've been deep in implementation without reading design docs.
+//
+// The 232nd Lesson: Implementation depth narrows scope.
+// "See code -> wire it -> declare done" vs "read spec -> understand scope -> build right thing"
+//
+// Calls the Instar server for active job context to make the checkpoint actionable.
+
+// CJS imports — this is a standalone hook script, not an ESM module
+const _r = require;
+const fs = _r('fs');
+const path = _r('path');
+const http = _r('http');
+
+const STATE_FILE = path.join('.instar', 'state', 'scope-coherence.json');
+const DEPTH_THRESHOLD = 20;
+const COOLDOWN_MS = 30 * 60 * 1000;  // 30 minutes
+const MIN_AGE_MS = 5 * 60 * 1000;    // 5 minutes
+
+function loadState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+  } catch {}
+  return { implementationDepth: 0 };
+}
+
+function saveState(state) {
+  try {
+    const dir = path.dirname(STATE_FILE);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  } catch {}
+}
+
+function fetchActiveJob() {
+  return new Promise((resolve) => {
+    const req = http.get('http://localhost:${port}/context/active-job', { timeout: 2000 }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+let data = '';
+process.stdin.on('data', chunk => data += chunk);
+process.stdin.on('end', async () => {
+  try {
+    const state = loadState();
+    const now = Date.now();
+    const depth = state.implementationDepth || 0;
+
+    if (depth < DEPTH_THRESHOLD) {
+      process.stdout.write(JSON.stringify({ decision: 'approve' }));
+      process.exit(0);
+      return;
+    }
+
+    // Check cooldown
+    if (state.lastCheckpointPrompt) {
+      const elapsed = now - new Date(state.lastCheckpointPrompt).getTime();
+      if (elapsed < COOLDOWN_MS) {
+        process.stdout.write(JSON.stringify({ decision: 'approve' }));
+        process.exit(0);
+        return;
+      }
+    }
+
+    // Check minimum session age
+    if (state.sessionStart) {
+      const age = now - new Date(state.sessionStart).getTime();
+      if (age < MIN_AGE_MS) {
+        process.stdout.write(JSON.stringify({ decision: 'approve' }));
+        process.exit(0);
+        return;
+      }
+    }
+
+    // Fetch active job context from server
+    const jobData = await fetchActiveJob();
+    const dismissed = state.checkpointsDismissed || 0;
+    const docsRead = state.sessionDocsRead || [];
+
+    let jobContext = '';
+    if (jobData && jobData.active && jobData.job) {
+      jobContext = '\\nYou are running the **' + jobData.job.name + '** job.\\n' +
+        'Scope: ' + (jobData.job.description || 'No description') + '\\n' +
+        'Are you still within the job\\'s boundaries?\\n';
+    }
+
+    let docsContext = '';
+    if (docsRead.length > 0) {
+      const recent = docsRead.slice(-5).map(d => d.split('/').pop());
+      docsContext = '\\nDocs read this session: ' + recent.join(', ');
+    } else {
+      docsContext = '\\nNo design docs, specs, or proposals have been read this session.';
+    }
+
+    let escalation = '';
+    if (dismissed >= 3) {
+      escalation = '\\n\\nYou\\'ve dismissed ' + dismissed + ' scope checkpoints. ' +
+        'Dismissing scope checks during deep implementation is how scope collapse happens.';
+    }
+
+    const reason = 'SCOPE COHERENCE CHECK\\n\\n' +
+      'You\\'ve been deep in implementation for ' + depth + ' actions without reading design documents.\\n' +
+      'Implementation depth narrows perception.\\n' +
+      jobContext +
+      '\\nStep back and ask yourself:\\n' +
+      '\\n1. WHO AM I? What role am I filling right now?\\n' +
+      '2. WHAT AM I WORKING ON? What\\'s the full scope? Is there a spec or proposal?\\n' +
+      '3. BIG PICTURE — How does this fit into the larger system?\\n' +
+      '4. HIGHER-LEVEL ELEMENTS — What architectural or cross-system aspects am I missing?\\n' +
+      '5. COMPLETENESS — Am I considering all elements, or have I collapsed the scope?\\n' +
+      docsContext + escalation +
+      '\\n\\nOptions: Read the relevant spec/proposal, confirm scope awareness, or /grounding';
+
+    // Record that we prompted
+    state.lastCheckpointPrompt = new Date().toISOString();
+    state.checkpointsDismissed = dismissed + 1;
+    saveState(state);
+
+    process.stdout.write(JSON.stringify({ decision: 'block', reason: reason }));
+  } catch {
+    process.stdout.write(JSON.stringify({ decision: 'approve' }));
+  }
+  process.exit(0);
+});
+`;
   }
 }

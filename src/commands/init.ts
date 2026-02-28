@@ -2935,6 +2935,51 @@ function installClaudeSettings(projectDir: string): void {
     }
   }
 
+  // PostToolUse: scope coherence collector tracks implementation depth
+  const scopeCollectorHook = {
+    type: 'command',
+    command: 'node .instar/hooks/scope-coherence-collector.js',
+    timeout: 5000,
+  };
+
+  if (!hooks.PostToolUse) {
+    hooks.PostToolUse = [];
+  }
+  const postToolUse = hooks.PostToolUse as Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>;
+
+  // Add collector to Edit, Write, Bash, Read, and Skill matchers
+  for (const matcher of ['Edit', 'Write', 'Bash', 'Read', 'Skill']) {
+    let entry = postToolUse.find(e => e.matcher === matcher);
+    if (!entry) {
+      entry = { matcher, hooks: [] };
+      postToolUse.push(entry);
+    }
+    if (!entry.hooks) entry.hooks = [];
+    const existingCommands = new Set(entry.hooks.map(h => h.command));
+    if (!existingCommands.has(scopeCollectorHook.command)) {
+      entry.hooks.push(scopeCollectorHook);
+    }
+  }
+
+  // Stop: scope coherence checkpoint fires the zoom-out prompt
+  const scopeCheckpointHook = {
+    type: 'command',
+    command: 'node .instar/hooks/scope-coherence-checkpoint.js',
+    timeout: 10000,
+  };
+
+  if (!hooks.Stop) {
+    hooks.Stop = [];
+  }
+  const stopHooks = hooks.Stop as Array<{ matcher?: string; hooks?: Array<{ command?: string }> }>;
+  // Check if already registered
+  const hasCheckpoint = stopHooks.some(e =>
+    e.hooks?.some(h => h.command?.includes('scope-coherence-checkpoint.js')),
+  );
+  if (!hasCheckpoint) {
+    stopHooks.push({ matcher: '', hooks: [scopeCheckpointHook] });
+  }
+
   // Remove stale mcpServers from settings.json — MCP servers belong in
   // ~/.claude.json (local scope) or .mcp.json, NOT .claude/settings.json
   if (settings.mcpServers) {
