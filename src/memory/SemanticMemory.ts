@@ -43,7 +43,7 @@ type Database = import('better-sqlite3').Database;
 function sanitizeFts5Query(query: string): string {
   return query
     .replace(/\b(AND|OR|NOT|NEAR)\b/gi, '')
-    .replace(/[*:"^{}().$@#!~`\\[\]]/g, '')
+    .replace(/[*:"^{}().$@#!~`?\\[\]]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

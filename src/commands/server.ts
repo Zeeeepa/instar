@@ -37,6 +37,7 @@ import { PostUpdateMigrator } from '../core/PostUpdateMigrator.js';
 import { UpgradeGuideProcessor } from '../core/UpgradeGuideProcessor.js';
 import { EvolutionManager } from '../core/EvolutionManager.js';
 import { TopicMemory } from '../memory/TopicMemory.js';
+import { SemanticMemory } from '../memory/SemanticMemory.js';
 import { QuotaTracker } from '../monitoring/QuotaTracker.js';
 import { AccountSwitcher } from '../monitoring/AccountSwitcher.js';
 import { QuotaNotifier } from '../monitoring/QuotaNotifier.js';
@@ -1046,7 +1047,7 @@ export async function startServer(options: StartOptions): Promise<void> {
         }
 
         // Pull latest on startup
-        const syncResult = gitSync.sync();
+        const syncResult = await gitSync.sync();
         if (syncResult.pulled) {
           console.log(pc.green(`  Git sync: pulled ${syncResult.commitsPulled} commit(s)`));
         }
@@ -1072,6 +1073,11 @@ export async function startServer(options: StartOptions): Promise<void> {
       try {
         sharedIntelligence = new ClaudeCliIntelligenceProvider(config.sessions.claudePath);
       } catch { /* CLI not available */ }
+    }
+
+    // Wire intelligence into git sync for LLM conflict resolution (Tier 1 → 2)
+    if (gitSync && sharedIntelligence) {
+      gitSync.setIntelligence(sharedIntelligence);
     }
 
     let relationships: RelationshipManager | undefined;
@@ -1342,6 +1348,31 @@ export async function startServer(options: StartOptions): Promise<void> {
           impact: 'Sessions start without conversation summaries. Search unavailable. Context limited to last 20 raw messages.',
         });
       }
+    }
+
+    // Initialize SemanticMemory — the knowledge graph that unifies all memory systems.
+    // Uses the same better-sqlite3 as TopicMemory; shares the rebuild path.
+    let semanticMemory: SemanticMemory | undefined;
+    try {
+      semanticMemory = new SemanticMemory({
+        dbPath: path.join(config.stateDir, 'semantic.db'),
+        decayHalfLifeDays: 30,
+        lessonDecayHalfLifeDays: 90,
+        staleThreshold: 0.2,
+      });
+      await semanticMemory.open();
+      const smStats = semanticMemory.stats();
+      console.log(pc.green(`  SemanticMemory: ${smStats.totalEntities} entities, ${smStats.totalEdges} edges`));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      semanticMemory = undefined;
+      degradationReporter.report({
+        feature: 'SemanticMemory',
+        primary: 'SQLite-backed knowledge graph with FTS5 search and confidence decay',
+        fallback: 'Legacy memory systems (MEMORY.md, CanonicalState, MemoryIndex)',
+        reason: `SemanticMemory init failed: ${reason}`,
+        impact: 'Knowledge graph unavailable. Migration, semantic search, and entity-relationship queries disabled.',
+      });
     }
 
     sessionManager.startMonitoring();
@@ -1842,7 +1873,7 @@ export async function startServer(options: StartOptions): Promise<void> {
       console.log(pc.green('  Sentinel wired into Telegram message flow'));
     }
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
     await server.start();
 
     // Connect DegradationReporter downstream systems now that everything is initialized.
