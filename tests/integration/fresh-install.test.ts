@@ -111,7 +111,7 @@ describe('Fresh install: instar init <project-name>', () => {
     expect(fs.existsSync(jobsPath)).toBe(true);
 
     const jobs = JSON.parse(fs.readFileSync(jobsPath, 'utf-8'));
-    expect(jobs.length).toBe(18);
+    expect(jobs.length).toBe(19);
 
     const slugs = jobs.map((j: any) => j.slug);
     // Original 12 coherence jobs
@@ -133,6 +133,8 @@ describe('Fresh install: instar init <project-name>', () => {
     expect(slugs).toContain('memory-hygiene');
     expect(slugs).toContain('guardian-pulse');
     expect(slugs).toContain('session-continuity-check');
+    // Maintenance jobs
+    expect(slugs).toContain('memory-export');
     // Infrastructure jobs
     expect(slugs).toContain('git-sync');
   });
