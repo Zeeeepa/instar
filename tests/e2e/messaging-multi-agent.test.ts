@@ -1088,4 +1088,290 @@ describe('E2E: Multi-Agent Messaging (same machine)', () => {
       expect(typeof res.body.threads.resolved).toBe('number');
     });
   });
+
+  // ── Phase 3: Delivery Retry, Watchdog, Expiry ────────────────
+
+  describe('delivery retry and expiry (E2E)', () => {
+    it('expired messages sent cross-agent are dead-lettered by retry manager', async () => {
+      // Send a message from A→B, then backdate it so it's expired
+      const sendRes = await request(agentA.app)
+        .post('/messages/send')
+        .set('Authorization', `Bearer ${agentA.authToken}`)
+        .send({
+          from: { agent: agentA.name, session: 'session-a', machine: 'test-machine' },
+          to: { agent: agentB.name, session: 'session-b', machine: 'test-machine' },
+          type: 'info',
+          priority: 'low',
+          subject: 'Will expire soon',
+          body: 'Testing expiry in E2E',
+          options: { ttlMinutes: 1 },
+        })
+        .expect(201);
+      const messageId = sendRes.body.messageId;
+
+      // Get the message on B's side and backdate it
+      const envelope = await agentB.store.get(messageId);
+      if (envelope) {
+        // Backdate creation to 2 hours ago so TTL (1 min) is expired
+        envelope.message.createdAt = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+        // Regress to queued so retry manager picks it up
+        envelope.delivery.phase = 'queued';
+        envelope.delivery.transitions.push({
+          from: 'delivered',
+          to: 'queued',
+          at: new Date().toISOString(),
+          reason: 'test: simulating stale message',
+        });
+        await agentB.store.updateEnvelope(envelope);
+      }
+
+      // Create retry manager for B and tick
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(agentB.store, delivery, {
+        agentName: agentB.name,
+      });
+      const result = await retryMgr.tick();
+      expect(result.expired).toBeGreaterThanOrEqual(1);
+      retryMgr.stop();
+
+      // Verify dead-letter via B's API
+      const deadRes = await request(agentB.app)
+        .get('/messages/dead-letter')
+        .set('Authorization', `Bearer ${agentB.authToken}`)
+        .expect(200);
+      const found = deadRes.body.messages.find((m: any) => m.message.id === messageId);
+      expect(found).toBeDefined();
+    });
+
+    it('retry manager delivers queued messages and they become visible in inbox', async () => {
+      // Create a queued message directly in B's store (simulates relay arrival)
+      const msgId = crypto.randomUUID();
+      const envelope = {
+        schemaVersion: 1,
+        message: {
+          id: msgId,
+          from: { agent: agentA.name, session: 'session-a', machine: 'test-machine' },
+          to: { agent: agentB.name, session: 'session-b', machine: 'local' },
+          type: 'info' as const,
+          priority: 'medium' as const,
+          subject: 'Retry test',
+          body: 'Should be delivered by retry manager',
+          createdAt: new Date().toISOString(),
+          ttlMinutes: 30,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'queued' as const,
+          transitions: [
+            { from: 'created', to: 'sent', at: new Date().toISOString() },
+            { from: 'sent', to: 'queued', at: new Date().toISOString() },
+          ],
+          attempts: 0,
+        },
+      };
+      await agentB.store.save(envelope as any);
+
+      // Tick the retry manager
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(agentB.store, delivery, {
+        agentName: agentB.name,
+      });
+      const result = await retryMgr.tick();
+      expect(result.retried).toBeGreaterThanOrEqual(1);
+      retryMgr.stop();
+
+      // Verify through B's HTTP API
+      const res = await request(agentB.app)
+        .get(`/messages/${msgId}`)
+        .set('Authorization', `Bearer ${agentB.authToken}`)
+        .expect(200);
+      expect(res.body.delivery.phase).toBe('delivered');
+    });
+
+    it('ACK timeout causes escalation for cross-agent query messages', async () => {
+      const escalations: Array<{ reason: string }> = [];
+
+      // Create a delivered query message backdated beyond 5-min ACK timeout
+      const msgId = crypto.randomUUID();
+      const sixMinAgo = new Date(Date.now() - 6 * 60_000).toISOString();
+      const envelope = {
+        schemaVersion: 1,
+        message: {
+          id: msgId,
+          from: { agent: agentA.name, session: 'session-a', machine: 'test-machine' },
+          to: { agent: agentB.name, session: 'session-b', machine: 'local' },
+          type: 'query' as const,
+          priority: 'medium' as const,
+          subject: 'Unanswered query E2E',
+          body: 'Waiting for ACK',
+          createdAt: new Date().toISOString(),
+          ttlMinutes: 60,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'delivered' as const,
+          transitions: [
+            { from: 'created', to: 'sent', at: sixMinAgo },
+            { from: 'sent', to: 'queued', at: sixMinAgo },
+            { from: 'queued', to: 'delivered', at: sixMinAgo },
+          ],
+          attempts: 1,
+        },
+      };
+      await agentB.store.save(envelope as any);
+
+      // Tick the retry manager with escalation callback
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(agentB.store, delivery, {
+        agentName: agentB.name,
+        onEscalate: (_env, reason) => escalations.push({ reason }),
+      });
+      const result = await retryMgr.tick();
+      expect(result.escalated).toBe(1);
+      expect(escalations[0].reason).toContain('ACK timeout');
+      retryMgr.stop();
+    });
+
+    it('watchdog regresses delivered messages when session process changes', async () => {
+      // Create a delivered message
+      const msgId = crypto.randomUUID();
+      const envelope = {
+        schemaVersion: 1,
+        message: {
+          id: msgId,
+          from: { agent: agentA.name, session: 'session-a', machine: 'test-machine' },
+          to: { agent: agentB.name, session: 'session-b', machine: 'local' },
+          type: 'info' as const,
+          priority: 'medium' as const,
+          subject: 'Watchdog test',
+          body: 'Should regress to queued',
+          createdAt: new Date().toISOString(),
+          ttlMinutes: 30,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'delivered' as const,
+          transitions: [
+            { from: 'created', to: 'sent', at: new Date().toISOString() },
+            { from: 'sent', to: 'queued', at: new Date().toISOString() },
+            { from: 'queued', to: 'delivered', at: new Date().toISOString() },
+          ],
+          attempts: 1,
+        },
+      };
+      await agentB.store.save(envelope as any);
+
+      // Create retry manager with unsafe process simulation
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const unsafeTmux = {
+        ...mockTmux,
+        getForegroundProcess: () => 'python', // Session crashed
+      };
+      const delivery = new MessageDelivery(formatter, unsafeTmux);
+      const retryMgr = new DeliveryRetryManager(agentB.store, delivery, {
+        agentName: agentB.name,
+      });
+
+      // Register watchdog with past timestamp
+      retryMgr.registerWatchdog(msgId);
+      const watchdogMap = (retryMgr as any).watchdogTargets as Map<string, number>;
+      watchdogMap.set(msgId, Date.now() - 11_000); // 11 seconds ago
+
+      await retryMgr.tick();
+      retryMgr.stop();
+
+      // Verify regression via HTTP
+      const res = await request(agentB.app)
+        .get(`/messages/${msgId}`)
+        .set('Authorization', `Bearer ${agentB.authToken}`)
+        .expect(200);
+      expect(res.body.delivery.phase).toBe('queued');
+
+      const lastTransition = res.body.delivery.transitions.at(-1);
+      expect(lastTransition.from).toBe('delivered');
+      expect(lastTransition.to).toBe('queued');
+      expect(lastTransition.reason).toContain('Watchdog');
+    });
+
+    it('full retry lifecycle: send → expire → dead-letter → verify via stats', async () => {
+      // Get initial stats
+      const initialStats = await request(agentB.app)
+        .get('/messages/stats')
+        .set('Authorization', `Bearer ${agentB.authToken}`)
+        .expect(200);
+      const initialDeadLetters = initialStats.body.volume?.deadLettered?.total ?? 0;
+
+      // Create an already-expired message in B's store
+      const msgId = crypto.randomUUID();
+      const envelope = {
+        schemaVersion: 1,
+        message: {
+          id: msgId,
+          from: { agent: agentA.name, session: 'session-a', machine: 'test-machine' },
+          to: { agent: agentB.name, session: 'session-b', machine: 'local' },
+          type: 'info' as const,
+          priority: 'low' as const,
+          subject: 'Full lifecycle',
+          body: 'Testing full retry lifecycle',
+          createdAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString(), // 3 hours ago
+          ttlMinutes: 1,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'queued' as const,
+          transitions: [
+            { from: 'created', to: 'sent', at: new Date(Date.now() - 3 * 60 * 60_000).toISOString() },
+            { from: 'sent', to: 'queued', at: new Date(Date.now() - 3 * 60 * 60_000).toISOString() },
+          ],
+          attempts: 0,
+        },
+      };
+      await agentB.store.save(envelope as any);
+
+      // Tick retry manager
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(agentB.store, delivery, {
+        agentName: agentB.name,
+      });
+      const result = await retryMgr.tick();
+      expect(result.expired).toBeGreaterThanOrEqual(1);
+      retryMgr.stop();
+
+      // Verify stats reflect new dead-letter
+      const finalStats = await request(agentB.app)
+        .get('/messages/stats')
+        .set('Authorization', `Bearer ${agentB.authToken}`)
+        .expect(200);
+      expect(finalStats.body.volume.deadLettered.total).toBeGreaterThan(initialDeadLetters);
+    });
+  });
 });

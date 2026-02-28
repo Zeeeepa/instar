@@ -1051,4 +1051,247 @@ describe('Inter-Agent Messaging API routes', () => {
         .expect(404);
     });
   });
+
+  // ── Delivery Retry and Expiry ───────────────────────────────
+
+  describe('delivery retry and expiry via DeliveryRetryManager', () => {
+    it('expired messages appear in dead-letter via GET /messages/dead-letter', async () => {
+      // Create a message with TTL=1 minute, backdated 2 hours ago
+      const expiredEnvelope = {
+        schemaVersion: 1,
+        message: {
+          id: crypto.randomUUID(),
+          from: { agent: 'sender', session: 'session-1', machine: 'test-machine' },
+          to: { agent: 'test-messaging-project', session: 'target', machine: 'local' },
+          type: 'info',
+          priority: 'low',
+          subject: 'Expired message',
+          body: 'This should be expired',
+          createdAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(), // 2 hours ago
+          ttlMinutes: 1,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'queued',
+          transitions: [
+            { from: 'created', to: 'sent', at: new Date(Date.now() - 2 * 60 * 60_000).toISOString() },
+            { from: 'sent', to: 'queued', at: new Date(Date.now() - 2 * 60 * 60_000).toISOString() },
+          ],
+          attempts: 0,
+        },
+      };
+
+      // Save directly to store (simulates arrival)
+      await messageStore.save(expiredEnvelope as any);
+
+      // Create a DeliveryRetryManager and tick
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const mockTmux = {
+        getForegroundProcess: () => 'bash',
+        isSessionAlive: () => true,
+        hasActiveHumanInput: () => false,
+        sendKeys: () => true,
+        getOutputLineCount: () => 100,
+      };
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(messageStore, delivery, {
+        agentName: 'test-messaging-project',
+      });
+
+      const result = await retryMgr.tick();
+      expect(result.expired).toBeGreaterThanOrEqual(1);
+      retryMgr.stop();
+
+      // Verify through HTTP
+      const res = await request(app)
+        .get('/messages/dead-letter')
+        .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+        .expect(200);
+
+      const found = res.body.messages.find((m: any) => m.message.id === expiredEnvelope.message.id);
+      expect(found).toBeDefined();
+    });
+
+    it('non-expired queued messages get retried and transition to delivered', async () => {
+      const freshEnvelope = {
+        schemaVersion: 1,
+        message: {
+          id: crypto.randomUUID(),
+          from: { agent: 'sender', session: 'session-1', machine: 'test-machine' },
+          to: { agent: 'test-messaging-project', session: 'target', machine: 'local' },
+          type: 'info',
+          priority: 'medium',
+          subject: 'Fresh message',
+          body: 'This should be retried',
+          createdAt: new Date().toISOString(),
+          ttlMinutes: 30,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'queued',
+          transitions: [
+            { from: 'created', to: 'sent', at: new Date().toISOString() },
+            { from: 'sent', to: 'queued', at: new Date().toISOString() },
+          ],
+          attempts: 0,
+        },
+      };
+
+      await messageStore.save(freshEnvelope as any);
+
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const mockTmux = {
+        getForegroundProcess: () => 'bash',
+        isSessionAlive: () => true,
+        hasActiveHumanInput: () => false,
+        sendKeys: () => true,
+        getOutputLineCount: () => 100,
+      };
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(messageStore, delivery, {
+        agentName: 'test-messaging-project',
+      });
+
+      const result = await retryMgr.tick();
+      expect(result.retried).toBeGreaterThanOrEqual(1);
+      retryMgr.stop();
+
+      // Verify message transitioned to delivered via HTTP
+      const res = await request(app)
+        .get(`/messages/${freshEnvelope.message.id}`)
+        .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+        .expect(200);
+      expect(res.body.delivery.phase).toBe('delivered');
+    });
+
+    it('escalation fires for critical expired messages', async () => {
+      const escalations: Array<{ reason: string }> = [];
+      const criticalEnvelope = {
+        schemaVersion: 1,
+        message: {
+          id: crypto.randomUUID(),
+          from: { agent: 'sender', session: 'session-1', machine: 'test-machine' },
+          to: { agent: 'test-messaging-project', session: 'target', machine: 'local' },
+          type: 'alert',
+          priority: 'critical',
+          subject: 'Critical expired',
+          body: 'Must escalate',
+          createdAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+          ttlMinutes: 30,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'queued',
+          transitions: [
+            { from: 'created', to: 'sent', at: new Date(Date.now() - 60 * 60_000).toISOString() },
+          ],
+          attempts: 0,
+        },
+      };
+
+      await messageStore.save(criticalEnvelope as any);
+
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const mockTmux = {
+        getForegroundProcess: () => 'bash',
+        isSessionAlive: () => true,
+        hasActiveHumanInput: () => false,
+        sendKeys: () => true,
+        getOutputLineCount: () => 100,
+      };
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(messageStore, delivery, {
+        agentName: 'test-messaging-project',
+        onEscalate: (_env, reason) => escalations.push({ reason }),
+      });
+
+      const result = await retryMgr.tick();
+      expect(result.escalated).toBe(1);
+      expect(escalations.length).toBe(1);
+      expect(escalations[0].reason).toContain('expired');
+      retryMgr.stop();
+    });
+
+    it('ACK timeout escalates unacknowledged delivered query messages', async () => {
+      const escalations: Array<{ reason: string }> = [];
+      const sixMinAgo = new Date(Date.now() - 6 * 60_000).toISOString();
+      const queryEnvelope = {
+        schemaVersion: 1,
+        message: {
+          id: crypto.randomUUID(),
+          from: { agent: 'sender', session: 'session-1', machine: 'test-machine' },
+          to: { agent: 'test-messaging-project', session: 'target', machine: 'local' },
+          type: 'query',
+          priority: 'medium',
+          subject: 'Unanswered query',
+          body: 'Waiting for response',
+          createdAt: new Date().toISOString(),
+          ttlMinutes: 60,
+        },
+        transport: {
+          relayChain: [],
+          originServer: 'http://localhost:0',
+          nonce: `${crypto.randomUUID()}:${new Date().toISOString()}`,
+          timestamp: new Date().toISOString(),
+        },
+        delivery: {
+          phase: 'delivered',
+          transitions: [
+            { from: 'created', to: 'sent', at: sixMinAgo },
+            { from: 'sent', to: 'queued', at: sixMinAgo },
+            { from: 'queued', to: 'delivered', at: sixMinAgo },
+          ],
+          attempts: 1,
+        },
+      };
+
+      await messageStore.save(queryEnvelope as any);
+
+      const { DeliveryRetryManager } = await import('../../src/messaging/DeliveryRetryManager.js');
+      const formatter = new MessageFormatter();
+      const mockTmux = {
+        getForegroundProcess: () => 'bash',
+        isSessionAlive: () => true,
+        hasActiveHumanInput: () => false,
+        sendKeys: () => true,
+        getOutputLineCount: () => 100,
+      };
+      const delivery = new MessageDelivery(formatter, mockTmux);
+      const retryMgr = new DeliveryRetryManager(messageStore, delivery, {
+        agentName: 'test-messaging-project',
+        onEscalate: (_env, reason) => escalations.push({ reason }),
+      });
+
+      const result = await retryMgr.tick();
+      expect(result.escalated).toBe(1);
+      expect(escalations[0].reason).toContain('ACK timeout');
+      expect(escalations[0].reason).toContain('5 minutes');
+      retryMgr.stop();
+
+      // Message should now be expired
+      const res = await request(app)
+        .get(`/messages/${queryEnvelope.message.id}`)
+        .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+        .expect(200);
+      expect(res.body.delivery.phase).toBe('expired');
+    });
+  });
 });

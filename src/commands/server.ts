@@ -71,6 +71,7 @@ import type { TmuxOperations } from '../messaging/MessageDelivery.js';
 import { MessageRouter } from '../messaging/MessageRouter.js';
 import { generateAgentToken } from '../messaging/AgentTokenManager.js';
 import { pickupDroppedMessages } from '../messaging/DropPickup.js';
+import { DeliveryRetryManager } from '../messaging/DeliveryRetryManager.js';
 import type { PipelineMessage } from '../types/pipeline.js';
 import { toPipeline, toInjection, toLogEntry, formatHistoryLine } from '../types/pipeline.js';
 import type { Message, IntelligenceProvider } from '../core/types.js';
@@ -2052,6 +2053,15 @@ export async function startServer(options: StartOptions): Promise<void> {
     if (dropResult.rejected > 0) {
       console.warn(pc.yellow(`  Messaging: rejected ${dropResult.rejected} dropped message(s): ${dropResult.rejections.map(r => r.reason).join(', ')}`));
     }
+    // Start delivery retry manager for automatic retries, watchdog, and TTL expiry
+    const retryManager = new DeliveryRetryManager(messageStore, messageDelivery, {
+      agentName: config.projectName,
+      onEscalate: (envelope, reason) => {
+        notify('IMMEDIATE', 'messaging', `Message escalation: ${reason}\n  From: ${envelope.message.from.agent}\n  Subject: ${envelope.message.subject}`);
+      },
+    });
+    retryManager.start();
+
     console.log(pc.green(`  Inter-agent messaging: enabled (token: ${agentToken.slice(0, 8)}...)${dropSummary}`));
 
     const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
@@ -2251,6 +2261,7 @@ export async function startServer(options: StartOptions): Promise<void> {
       commitmentSentinel?.stop();
       await notificationBatcher.flushAll(); // Drain pending notifications before exit
       notificationBatcher.stop();
+      retryManager.stop();
       memoryMonitor.stop();
       caffeinateManager.stop();
       sleepWakeDetector.stop();

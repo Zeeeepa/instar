@@ -248,13 +248,12 @@ export class MessageStore implements IMessageStore {
     try {
       const data = fs.readFileSync(filePath, 'utf-8');
       return JSON.parse(data) as MessageThread;
-    } catch {
-      // Check archive
+    } catch { // @silent-fallback-ok — thread file not found, check archive
       const archivePath = path.join(this.basePath, 'threads', 'archive', `${threadId}.json`);
       try {
         const data = fs.readFileSync(archivePath, 'utf-8');
         return JSON.parse(data) as MessageThread;
-      } catch {
+      } catch { // @silent-fallback-ok — thread not found in archive either, return null
         return null;
       }
     }
