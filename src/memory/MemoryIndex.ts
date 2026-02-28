@@ -1,6 +1,12 @@
 /**
  * MemoryIndex — FTS5 full-text search over agent memory files.
  *
+ * @deprecated Use SemanticMemory instead. MemoryIndex will be removed in v1.0.
+ * SemanticMemory provides the same FTS5 search plus semantic types, confidence
+ * tracking, knowledge graph relations, and optional vector search (Phase 5).
+ * Use `instar memory export` or POST /semantic/export-memory to generate
+ * MEMORY.md from SemanticMemory.
+ *
  * Uses SQLite with FTS5 for fast full-text search. The database is
  * a derived cache — delete it, run reindex, and it rebuilds perfectly
  * from the markdown source files.

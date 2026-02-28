@@ -434,9 +434,12 @@ export function createRoutes(ctx: RouteContext): Router {
     }
   });
 
-  // ── Memory Search ──────────────────────────────────────────────
+  // ── Memory Search (DEPRECATED — use /semantic/* routes instead) ─
 
   router.get('/memory/search', async (req, res) => {
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Sunset', '2026-06-01');
+    res.setHeader('Link', '</semantic/search>; rel="successor-version"');
     try {
       const { MemoryIndex } = await import('../memory/MemoryIndex.js');
       const memoryConfig = (ctx.config as any).memory || {};
@@ -464,6 +467,9 @@ export function createRoutes(ctx: RouteContext): Router {
   });
 
   router.get('/memory/stats', async (_req, res) => {
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Sunset', '2026-06-01');
+    res.setHeader('Link', '</semantic/stats>; rel="successor-version"');
     try {
       const { MemoryIndex } = await import('../memory/MemoryIndex.js');
       const memoryConfig = (ctx.config as any).memory || {};
@@ -480,6 +486,8 @@ export function createRoutes(ctx: RouteContext): Router {
   });
 
   router.post('/memory/reindex', async (_req, res) => {
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Sunset', '2026-06-01');
     try {
       const { MemoryIndex } = await import('../memory/MemoryIndex.js');
       const memoryConfig = (ctx.config as any).memory || {};
@@ -497,6 +505,8 @@ export function createRoutes(ctx: RouteContext): Router {
   });
 
   router.post('/memory/sync', async (_req, res) => {
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Sunset', '2026-06-01');
     try {
       const { MemoryIndex } = await import('../memory/MemoryIndex.js');
       const memoryConfig = (ctx.config as any).memory || {};
@@ -722,6 +732,34 @@ export function createRoutes(ctx: RouteContext): Router {
       res.json({ context });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Context generation failed' });
+    }
+  });
+
+  // ── MEMORY.md Export (Phase 6) ─────────────────────────────────
+
+  router.post('/semantic/export-memory', async (req, res) => {
+    if (!ctx.semanticMemory) { res.status(503).json({ error: 'Semantic memory not enabled' }); return; }
+    try {
+      const { MemoryExporter } = await import('../memory/MemoryExporter.js');
+      const exporter = new MemoryExporter({
+        semanticMemory: ctx.semanticMemory,
+        minConfidence: req.body?.minConfidence,
+        maxEntities: req.body?.maxEntities,
+        agentName: req.body?.agentName,
+        includeFooter: req.body?.includeFooter,
+      });
+
+      // If filePath provided, write to disk; otherwise return markdown
+      const filePath = req.body?.filePath;
+      if (filePath) {
+        const result = exporter.write(filePath);
+        res.json(result);
+      } else {
+        const result = exporter.generate();
+        res.json(result);
+      }
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Export failed' });
     }
   });
 

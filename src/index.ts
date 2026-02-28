@@ -178,6 +178,8 @@ export type {
 // Memory
 export { MemoryIndex } from './memory/MemoryIndex.js';
 export { SemanticMemory } from './memory/SemanticMemory.js';
+export { MemoryExporter } from './memory/MemoryExporter.js';
+export type { MemoryExporterConfig, ExportResult, WriteResult } from './memory/MemoryExporter.js';
 export { EpisodicMemory } from './memory/EpisodicMemory.js';
 export type { ActivityDigest, SessionSynthesis, BoundarySignal, SentinelState } from './memory/EpisodicMemory.js';
 export { ActivityPartitioner } from './memory/ActivityPartitioner.js';
@@ -263,6 +265,16 @@ export { MessageDelivery } from './messaging/MessageDelivery.js';
 export type { TmuxOperations } from './messaging/MessageDelivery.js';
 export { MessageRouter } from './messaging/MessageRouter.js';
 export type { MessageRouterConfig } from './messaging/MessageRouter.js';
+export {
+  generateAgentToken,
+  getAgentToken,
+  verifyAgentToken,
+  computeDropHmac,
+  verifyDropHmac,
+  deleteAgentToken,
+  listAgentTokens,
+  ensureTokenDir,
+} from './messaging/AgentTokenManager.js';
 export {
   VALID_TRANSITIONS,
   ALLOWED_INJECTION_PROCESSES,

@@ -7,6 +7,7 @@
  *   instar memory status           Show index statistics
  */
 
+import path from 'node:path';
 import pc from 'picocolors';
 import { loadConfig } from '../core/Config.js';
 import { MemoryIndex } from '../memory/MemoryIndex.js';
@@ -123,6 +124,56 @@ export async function memoryStatus(opts: MemoryOptions): Promise<void> {
     process.exit(1);
   } finally {
     cleanup();
+  }
+}
+
+interface ExportOptions extends MemoryOptions {
+  output?: string;
+  agent?: string;
+  minConfidence?: number;
+  maxEntities?: number;
+}
+
+export async function memoryExport(opts: ExportOptions): Promise<void> {
+  try {
+    const config = loadConfig(opts.dir);
+    const { SemanticMemory } = await import('../memory/SemanticMemory.js');
+    const { MemoryExporter } = await import('../memory/MemoryExporter.js');
+
+    const semanticMemory = new SemanticMemory({
+      dbPath: path.join(config.stateDir, 'semantic.db'),
+      decayHalfLifeDays: 30,
+      lessonDecayHalfLifeDays: 90,
+      staleThreshold: 0.2,
+    });
+    await semanticMemory.open();
+
+    try {
+      const exporter = new MemoryExporter({
+        semanticMemory,
+        agentName: opts.agent,
+        minConfidence: opts.minConfidence,
+        maxEntities: opts.maxEntities,
+      });
+
+      if (opts.output) {
+        const result = exporter.write(opts.output);
+        console.log(pc.green(`Exported ${result.entityCount} entities to ${result.filePath}`));
+        console.log(`  Domains:  ${result.domainCount}`);
+        console.log(`  Excluded: ${result.excludedCount} (below confidence threshold)`);
+        console.log(`  Tokens:   ~${result.estimatedTokens}`);
+        console.log(`  Size:     ${formatBytes(result.fileSizeBytes)}`);
+      } else {
+        const result = exporter.generate();
+        // Print markdown to stdout for piping
+        process.stdout.write(result.markdown);
+      }
+    } finally {
+      semanticMemory.close();
+    }
+  } catch (err) {
+    console.log(pc.red(`Export failed: ${err instanceof Error ? err.message : err}`));
+    process.exit(1);
   }
 }
 

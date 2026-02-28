@@ -480,6 +480,19 @@ memoryCmd
     return memoryStatus(opts);
   });
 
+memoryCmd
+  .command('export')
+  .description('Generate MEMORY.md from SemanticMemory knowledge graph')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('-o, --output <path>', 'Output file path (prints to stdout if omitted)')
+  .option('-a, --agent <name>', 'Agent name for the header (default: Agent)')
+  .option('--min-confidence <value>', 'Minimum confidence threshold (default: 0.2)', (v: string) => parseFloat(v))
+  .option('--max-entities <count>', 'Maximum entities to include (default: 200)', (v: string) => parseInt(v, 10))
+  .action(async (opts) => {
+    const { memoryExport } = await import('./commands/memory.js');
+    return memoryExport(opts);
+  });
+
 // ── Knowledge Base ────────────────────────────────────────────────
 
 const knowledgeCmd = program

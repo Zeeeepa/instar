@@ -68,6 +68,7 @@ import { MessageFormatter } from '../messaging/MessageFormatter.js';
 import { MessageDelivery } from '../messaging/MessageDelivery.js';
 import type { TmuxOperations } from '../messaging/MessageDelivery.js';
 import { MessageRouter } from '../messaging/MessageRouter.js';
+import { generateAgentToken } from '../messaging/AgentTokenManager.js';
 import type { PipelineMessage } from '../types/pipeline.js';
 import { toPipeline, toInjection, toLogEntry, formatHistoryLine } from '../types/pipeline.js';
 import type { Message, IntelligenceProvider } from '../core/types.js';
@@ -1986,7 +1987,9 @@ export async function startServer(options: StartOptions): Promise<void> {
       localMachine: machineId,
       serverUrl: `http://localhost:${config.port}`,
     });
-    console.log(pc.green('  Inter-agent messaging: enabled'));
+    // Generate/persist agent token for cross-agent auth (idempotent — reuses existing token)
+    const agentToken = generateAgentToken(config.projectName);
+    console.log(pc.green(`  Inter-agent messaging: enabled (token: ${agentToken.slice(0, 8)}...)`));
 
     const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
     await server.start();
