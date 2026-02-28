@@ -1,6 +1,6 @@
 # Upgrade Guide — vNEXT
 
-<!-- bump: patch -->
+<!-- bump: minor -->
 <!-- Valid values: patch, minor, major -->
 <!-- patch = bug fixes, refactors, test additions, doc updates -->
 <!-- minor = new features, new APIs, new capabilities (backwards-compatible) -->
@@ -8,19 +8,40 @@
 
 ## What Changed
 
-<!-- Describe what changed technically. What new features, APIs, behavioral changes? -->
-<!-- Write this for the AGENT — they need to understand the system deeply. -->
+Cross-machine message routing is now fully implemented. When an agent sends a message to
+a target on a different machine (e.g., `to.machine = "m_remote_xyz"`), the MessageRouter
+will:
+
+1. Verify the target machine is paired and active in the machine registry
+2. Resolve the machine's URL via `lastKnownUrl` on the registry entry
+3. Sign the envelope with Ed25519 (covering the full `SignedPayload`: message, relayChain, originServer, nonce, timestamp)
+4. Relay via `POST /api/messages/relay-machine` with Machine-HMAC (5-header auth scheme)
+5. If relay fails or no URL is known, queue to `~/.instar/messages/outbound/{machineId}/` for git-sync fallback
+
+On the receiving side, `relay(envelope, 'machine')` now verifies:
+- Ed25519 signature present and valid against the signer's public key
+- Signer is an active, paired machine
+- Timestamp within 5-minute clock skew tolerance
+
+The `relay-machine` endpoint has moved from the main routes (bearer auth) to `machineRoutes.ts`
+(Machine-HMAC auth), which is the correct auth scheme for cross-machine communication.
+
+New infrastructure:
+- `MessageRouterConfig` now accepts optional `CrossMachineDeps` (identityManager, signingKeyPem, nonceStore, securityLog)
+- `MachineRegistryEntry` has a new `lastKnownUrl` field for URL resolution
+- `MachineIdentityManager` has `updateMachineUrl()` and `getMachineUrl()` methods
+- `MessageStore.updateEnvelope()` for persisting transport field updates after signing
+- `canonicalJSON()` implements RFC 8785 for deterministic JSON serialization
 
 ## What to Tell Your User
 
-<!-- Write talking points the agent should relay to their user. -->
-<!-- This should be warm, conversational, user-facing — not a changelog. -->
-<!-- Focus on what THEY can now do, not internal plumbing. -->
-
-- **[Feature name]**: "[Brief, friendly description of what this means for the user]"
+- **Cross-machine messaging**: "Agents on different machines can now send messages to each other securely. Messages are signed with Ed25519 and verified on receipt. If the remote machine is offline, messages queue up and sync via git."
 
 ## Summary of New Capabilities
 
 | Capability | How to Use |
 |-----------|-----------|
-| [Capability] | [Endpoint, command, or "automatic"] |
+| Cross-machine message send | `instar msg send --to agent@machine_id "message"` or via API with `to.machine` set to remote machine ID |
+| Outbound queue (offline fallback) | Automatic — messages queue in `~/.instar/messages/outbound/` when remote is unreachable |
+| Ed25519 envelope signatures | Automatic — all cross-machine messages are signed and verified |
+| Machine URL tracking | Call `identityManager.updateMachineUrl(machineId, tunnelUrl)` to register a machine's URL |
