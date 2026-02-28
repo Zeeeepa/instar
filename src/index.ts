@@ -152,6 +152,23 @@ export type {
   AuditEventType, AuditEntry, AuditQuery,
   AuditIntegrityResult, AuditStats, AuditTrailConfig,
 } from './core/AuditTrail.js';
+export { AgentBus } from './core/AgentBus.js';
+export type {
+  MessageType, DeliveryStatus, AgentMessage, TransportAdapter,
+  AgentBusConfig, AgentBusEvents,
+} from './core/AgentBus.js';
+export { CoordinationProtocol } from './core/CoordinationProtocol.js';
+export type {
+  FileAvoidanceRequest, FileAvoidanceResponse, WorkAnnouncement,
+  StatusQuery, StatusResponse, LeadershipState, AvoidanceEntry,
+  CoordinationProtocolConfig, CoordinationEvents,
+} from './core/CoordinationProtocol.js';
+export { ConflictNegotiator } from './core/ConflictNegotiator.js';
+export type {
+  NegotiationStatus, ResolutionStrategy, NegotiationProposal,
+  SectionClaim, NegotiationResponse, NegotiationSession,
+  NegotiationResult, ConflictNegotiatorConfig,
+} from './core/ConflictNegotiator.js';
 
 // Memory
 export { MemoryIndex } from './memory/MemoryIndex.js';
