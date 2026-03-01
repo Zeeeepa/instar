@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/free-text-guard.sh",
+            "blocking": true,
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

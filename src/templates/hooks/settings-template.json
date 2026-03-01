@@ -25,6 +25,17 @@
             "timeout": 5000
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .instar/hooks/free-text-guard.sh",
+            "blocking": true,
+            "timeout": 5000
+          }
+        ]
       }
     ],
     "SessionStart": [

@@ -144,6 +144,13 @@ export class PostUpdateMigrator {
     } catch (err) {
       result.errors.push(`scope-coherence-checkpoint.js: ${err instanceof Error ? err.message : String(err)}`);
     }
+
+    try {
+      fs.writeFileSync(path.join(hooksDir, 'free-text-guard.sh'), this.getFreeTextGuardHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/free-text-guard.sh (blocks AskUserQuestion for passwords/credentials)');
+    } catch (err) {
+      result.errors.push(`free-text-guard.sh: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**
@@ -2111,5 +2118,12 @@ process.stdin.on('end', async () => {
   process.exit(0);
 });
 `;
+  }
+
+  private getFreeTextGuardHook(): string {
+    // Read the hook from the templates directory instead of inline generation.
+    // This avoids multi-layer escaping issues (TypeScript -> bash -> Python -> regex).
+    const hookPath = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'templates', 'hooks', 'free-text-guard.sh');
+    return fs.readFileSync(hookPath, 'utf-8');
   }
 }
