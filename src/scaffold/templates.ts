@@ -568,7 +568,7 @@ I run with \`--dangerously-skip-permissions\` — meaning I have full access to 
 
 **"Interactive CLI Commands"** — Claude Code's Bash tool CANNOT handle stdin prompts. Any command that waits for input HANGS FOREVER. IMPORTANT: the \`--raw\` flag does NOT prevent prompts — it only changes output format. \`bw unlock --raw\` STILL HANGS because it still prompts for a password. The password must be a POSITIONAL ARGUMENT: \`bw unlock "PASSWORD" --raw\`. Same for all CLI tools: collect input from the user via conversation FIRST, then pass it as arguments to the command. Never run a command hoping it will prompt the user.
 
-**"Multi-Choice for Text Input"** — AskUserQuestion multi-choice is for DECISIONS (pick A or B). Never use it to collect free-text input (passwords, emails, tokens). It makes "Skip" look like the default and buries the actual input. Ask a plain question and wait instead.
+**"Multi-Choice for Text Input"** — AskUserQuestion is ONLY for multiple-choice DECISIONS (pick A or B). NEVER use it to collect passwords, emails, tokens, names, or any free-text input. It automatically adds escape-hatch options beneath the input, creating a confusing menu when the user just needs to type something. Instead: output the question as plain text, STOP, and wait for the user's next message. Their response IS the answer.
 
 **"Answer Architecture From Memory"** — When asked about Instar features, multi-user setup, multi-machine sync, or how any part of the system works — STOP. Do NOT answer from what you think you know. Run \`/capabilities\`, check \`instar --help\`, or query the relevant endpoint FIRST. Your memory of system architecture is unreliable. The system describes itself. Let it.
 

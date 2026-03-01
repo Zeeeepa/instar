@@ -36,11 +36,31 @@ bw --version                              # Returns version, never prompts
 
 **THE RULE:** You MUST have the user's password as text BEFORE running any unlock/login command. Ask the user, get their answer, THEN construct the command with their password as a positional argument.
 
-### 2. No Multi-Choice for Text Input
+### 2. NEVER Use AskUserQuestion for Passwords, Emails, or Free-Text
 
-AskUserQuestion multi-choice is for DECISIONS (pick A or B or C).
-NEVER use it to collect free-text input (passwords, emails, tokens).
-When you need text, ask a plain question and wait for the user's response.
+**This is the #1 UX failure mode.** AskUserQuestion is ONLY for multiple-choice DECISIONS (pick A or B or C). It must NEVER be used to collect passwords, email addresses, tokens, or any free-text input.
+
+**What goes wrong:** AskUserQuestion automatically adds escape-hatch options ("I changed my mind", "Type something", "Chat about this") beneath the input field. When a user just typed their password and sees a multi-choice menu, it's confusing and feels broken.
+
+**The CORRECT way to ask for a password:**
+```
+Just output the question as plain text, then STOP and wait for the user's next message.
+```
+
+Example — CORRECT:
+> You (output text): "What's your Bitwarden master password? Type it below — I'll use it once to unlock the vault and then discard it."
+> Then STOP. Do not call any tool. Wait for the user to type their response.
+> The user's next message IS the password.
+
+Example — WRONG (DO NOT DO THIS):
+> You call AskUserQuestion with question "What's your Bitwarden master password?"
+> This shows a text field WITH multi-choice escape hatches beneath it. Terrible UX.
+
+Example — ALSO WRONG (DO NOT DO THIS):
+> You call AskUserQuestion with "Can you provide your password?" and options ["Enter password", "Skip"]
+> Then ANOTHER AskUserQuestion for the actual password. Two prompts for one piece of information.
+
+**The rule is absolute:** For ANY free-text input (passwords, emails, tokens, names), just write the question as plain text output and wait. Never touch AskUserQuestion.
 
 ### 3. No Assumptions About What's Stored
 
@@ -97,9 +117,14 @@ Parse the JSON response. Three possible `status` values:
 
 **Step 2c: Get credentials from user and unlock:**
 
-If unauthenticated, ask TWO separate questions:
-1. "What email address do you use for Bitwarden?" (wait for response)
-2. "What's your Bitwarden master password?" (wait for response)
+**CRITICAL: Do NOT use AskUserQuestion here. Just output the question as plain text and wait.**
+
+If unauthenticated, ask for email first (plain text, wait for reply), then password (plain text, wait for reply):
+
+> Output: "What email address do you use for Bitwarden?"
+> STOP. Wait for user's response. Their next message is the email.
+> Output: "And your master password?"
+> STOP. Wait for user's response. Their next message is the password.
 
 Then run (substituting THEIR ACTUAL ANSWERS):
 ```bash
@@ -107,8 +132,10 @@ BW_SESSION=$(bw login "user@example.com" "their_actual_password" --raw 2>&1)
 echo "RESULT:$BW_SESSION"
 ```
 
-If locked (already logged in), ask ONE question:
-1. "What's your Bitwarden master password?" (wait for response)
+If locked (already logged in), ask for password only (plain text, wait for reply):
+
+> Output: "What's your Bitwarden master password? I'll unlock the vault and discard it immediately."
+> STOP. Wait for user's response. Their next message is the password.
 
 Then run (substituting THEIR ACTUAL ANSWER):
 ```bash
@@ -117,9 +144,10 @@ echo "RESULT:$BW_SESSION"
 ```
 
 **CHECK THE RESULT:** If `BW_SESSION` is empty or contains "Invalid" or "error":
-> "That didn't work — the password might be wrong. Want to try again?"
+> Output: "That didn't work — the password might be wrong. Want to try again?"
+> STOP. Wait for their response. If yes, ask for password again (plain text). If no, offer local store.
 
-Allow up to 3 retries. After 3 failures, offer to fall back to local store.
+Allow up to 3 retries. After 3 failures, offer to fall back to local store via AskUserQuestion (THIS is a decision, so multi-choice is appropriate here).
 
 **Step 2d: Verify and save session:**
 ```bash

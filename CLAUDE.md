@@ -130,7 +130,7 @@ The feedback webhook (`dawn.bot-me.ai/api/instar/feedback`) uses different auth 
   - **ALWAYS** use: `bw unlock "ACTUAL_PASSWORD" --raw`, `bw login "EMAIL" "PASSWORD" --raw`, `ssh-keygen -t ed25519 -f path -N "" -q`, `npm init -y`
   - **THE PATTERN**: Get user input via conversation FIRST. Then construct the command with their actual input as positional arguments. Never run a command hoping it will prompt the user.
 
-- **No Multi-Choice for Text Input**: AskUserQuestion multi-choice is for DECISIONS between options (pick A or B). NEVER use it to collect free-text input (passwords, emails, tokens, names). When you need text from the user, ask a plain question and wait. Multi-choice for text input makes "Skip" look like the default and buries the actual input option.
+- **NEVER Use AskUserQuestion for Free-Text Input**: AskUserQuestion is ONLY for multiple-choice DECISIONS (pick A or B). NEVER use it to collect passwords, emails, tokens, names, or any free-text input. AskUserQuestion automatically adds escape-hatch options beneath the input, creating a confusing multi-choice menu when the user just needs to type something. **Instead:** Output the question as plain text, then STOP and wait for the user's next message. Their response IS the answer. This is the #1 setup wizard UX failure mode.
 
 ## Key Patterns from Dawn
 
