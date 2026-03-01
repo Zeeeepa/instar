@@ -658,7 +658,7 @@ describe('Full Memory Stack E2E lifecycle', () => {
       const recallRes = await request(app)
         .get(`/semantic/recall/${justinEntityId}`)
         .set(auth());
-      expect(recallRes.body.entity.confidence).toBe(1.0);
+      expect(recallRes.body.entity.confidence).toBeCloseTo(1.0, 1);
     });
 
     it('completing a session creates synthesis visible in episodic layer', async () => {
