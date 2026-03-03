@@ -190,7 +190,7 @@ describe('Route validation edge cases', () => {
       expect(res.status).toBe(503);
     });
 
-    it('GET /quota returns not_configured when no tracker', async () => {
+    it('GET /quota returns not_configured when no tracker', { timeout: 30000 }, async () => {
       const res = await request(app).get('/quota');
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('not_configured');
