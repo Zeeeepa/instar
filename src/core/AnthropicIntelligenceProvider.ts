@@ -12,16 +12,10 @@
  */
 
 import type { IntelligenceProvider, IntelligenceOptions } from './types.js';
+import { resolveModelId } from './models.js';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_API_VERSION = '2023-06-01';
-
-/** Model mapping: abstract tiers → concrete Anthropic model IDs */
-const MODEL_MAP: Record<string, string> = {
-  fast: 'claude-haiku-4-5-20251001',
-  balanced: 'claude-sonnet-4-5-20250514',
-  capable: 'claude-opus-4-0-20250514',
-};
 
 const DEFAULT_MODEL = 'fast';
 
@@ -45,7 +39,7 @@ export class AnthropicIntelligenceProvider implements IntelligenceProvider {
   }
 
   async evaluate(prompt: string, options?: IntelligenceOptions): Promise<string> {
-    const model = MODEL_MAP[options?.model ?? DEFAULT_MODEL] ?? MODEL_MAP[DEFAULT_MODEL];
+    const model = resolveModelId(options?.model ?? DEFAULT_MODEL);
     const maxTokens = options?.maxTokens ?? 100;
     const temperature = options?.temperature ?? 0;
 

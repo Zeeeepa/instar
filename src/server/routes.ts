@@ -57,6 +57,7 @@ import type { MessageRouter } from '../messaging/MessageRouter.js';
 import type { SessionSummarySentinel } from '../messaging/SessionSummarySentinel.js';
 import type { SpawnRequestManager } from '../messaging/SpawnRequestManager.js';
 import { getOutboundQueueStatus, cleanupDeliveredOutbound, buildAgentList } from '../messaging/GitSyncTransport.js';
+import type { CapabilityMapper } from '../core/CapabilityMapper.js';
 import type { MessageType, MessagePriority, MessageFilter } from '../messaging/types.js';
 import { verifyAgentToken } from '../messaging/AgentTokenManager.js';
 import type { WorkingMemoryAssembler } from '../memory/WorkingMemoryAssembler.js';
@@ -104,6 +105,7 @@ export interface RouteContext {
   workingMemory: WorkingMemoryAssembler | null;
   quotaManager: QuotaManager | null;
   systemReviewer: SystemReviewer | null;
+  capabilityMapper: CapabilityMapper | null;
   startTime: Date;
 }
 
@@ -114,6 +116,30 @@ const VALID_SORTS = ['significance', 'recent', 'name'] as const;
 
 export function createRoutes(ctx: RouteContext): Router {
   const router = Router();
+
+  // ── Discovery ───────────────────────────────────────────────────
+  //
+  // Bootstrap endpoint for agents to discover available APIs.
+
+  router.get('/.well-known/instar.json', (_req, res) => {
+    res.json({
+      name: ctx.config.projectName,
+      version: ctx.config.version || '0.0.0',
+      endpoints: {
+        health: '/health',
+        capabilities: '/capabilities',
+        capabilityMap: '/capability-map',
+        capabilityMapCompact: '/capability-map?format=compact',
+        capabilityMapDrift: '/capability-map/drift',
+        capabilityMapRefresh: '/capability-map/refresh',
+        projectMap: '/project-map',
+        sessions: '/sessions',
+        jobs: '/jobs',
+        evolution: '/evolution',
+        context: '/context',
+      },
+    });
+  });
 
   // ── Health ──────────────────────────────────────────────────────
 
@@ -1064,6 +1090,41 @@ export function createRoutes(ctx: RouteContext): Router {
       updates: {
         autoUpdate: !!ctx.autoUpdater,
       },
+      playbook: (() => {
+        const playbookDir = path.join(stateDir, 'playbook');
+        const initialized = fs.existsSync(playbookDir);
+        let itemCount = 0;
+        let hasManifest = false;
+        if (initialized) {
+          const manifestPath = path.join(playbookDir, 'context-manifest.json');
+          hasManifest = fs.existsSync(manifestPath);
+          if (hasManifest) {
+            try {
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+              itemCount = Array.isArray(manifest.items) ? manifest.items.length : 0;
+            } catch { /* corrupt manifest */ }
+          }
+        }
+        return {
+          initialized,
+          itemCount,
+          hasManifest,
+          commands: [
+            'instar playbook init — initialize the playbook system',
+            'instar playbook doctor — health check',
+            'instar playbook status — manifest overview',
+            'instar playbook list — all context items',
+            'instar playbook add — add a context item',
+            'instar playbook assemble — preview trigger-based assembly',
+            'instar playbook evaluate — run lifecycle (score, decay, dedup)',
+            'instar playbook mount — import context from another agent',
+            'instar playbook search — find items by tag',
+          ],
+          hint: initialized
+            ? `Playbook active with ${itemCount} context items. Run 'instar playbook doctor' to verify health.`
+            : "Playbook not initialized. Run 'instar playbook init' to set up adaptive context engineering.",
+        };
+      })(),
       attentionQueue: {
         enabled: true,
         hint: 'Use POST /attention to signal important items to the user.',
@@ -1157,9 +1218,116 @@ export function createRoutes(ctx: RouteContext): Router {
           { context: 'User asks to adjust memory warning thresholds or stop memory alerts', action: 'Update thresholds (PATCH /monitoring/memory/thresholds with {warning, elevated, critical}). Check current state (GET /monitoring/memory).' },
           { context: 'User asks about Instar features, architecture, multi-user, or multi-machine setup', action: 'STOP — do NOT answer from memory. Run GET /capabilities first, then check `instar --help` for CLI commands, then GET /context/dispatch for the full context map. Answer ONLY from what these return.' },
           { context: 'User says to update, install latest version, or apply updates', action: 'Run POST /updates/apply immediately. Do NOT explain how to update — just do it. If you want to enable auto-updates, set updates.autoApply to true in .instar/config.json.' },
+          { context: 'Agent learns a lesson, discovers a pattern, or user teaches something worth remembering', action: 'Add it to the Playbook manifest (instar playbook add). Context items persist across sessions and get assembled based on triggers. This is more structured than MEMORY.md — items have triggers, scores, and lifecycle management.' },
+          { context: 'Session context feels stale or irrelevant', action: 'Run instar playbook evaluate to score items, decay stale ones, and deduplicate. Then check instar playbook status.' },
+          { context: 'Another agent wants to share context', action: 'Use instar playbook mount to import their manifest with integrity verification. Only global-scoped items are accepted.' },
         ],
       },
     });
+  });
+
+  // ── Capability Map ──────────────────────────────────────────────────
+  //
+  // Hierarchical self-knowledge map with provenance tracking and drift detection.
+  // Agents use this to understand their own features, skills, and integrations.
+
+  router.get('/capability-map', async (req, res) => {
+    if (!ctx.capabilityMapper) {
+      res.status(501).json({ error: 'CapabilityMapper not initialized' });
+      return;
+    }
+
+    try {
+      const map = await ctx.capabilityMapper.getMap();
+      const format = req.query.format;
+
+      if (format === 'md' || format === 'markdown') {
+        res.type('text/markdown').send(ctx.capabilityMapper.renderMarkdown(map, 2));
+      } else if (format === 'compact') {
+        res.type('text/markdown').send(ctx.capabilityMapper.renderMarkdown(map, 1));
+      } else {
+        res.json(map);
+      }
+    } catch (err) {
+      res.status(500).json({
+        error: 'SCAN_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  router.get('/capability-map/drift', async (_req, res) => {
+    if (!ctx.capabilityMapper) {
+      res.status(501).json({ error: 'CapabilityMapper not initialized' });
+      return;
+    }
+
+    try {
+      const drift = await ctx.capabilityMapper.detectDrift();
+      res.json(drift);
+    } catch (err) {
+      res.status(500).json({
+        error: 'DRIFT_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  router.get('/capability-map/:domain', async (req, res) => {
+    if (!ctx.capabilityMapper) {
+      res.status(501).json({ error: 'CapabilityMapper not initialized' });
+      return;
+    }
+
+    try {
+      const map = await ctx.capabilityMapper.getMap();
+      const domain = map.domains.find(d => d.id === req.params.domain);
+
+      if (!domain) {
+        res.status(404).json({
+          error: 'DOMAIN_NOT_FOUND',
+          message: `Domain '${req.params.domain}' not found`,
+          suggestion: `Available domains: ${map.domains.map(d => d.id).join(', ')}`,
+        });
+        return;
+      }
+
+      res.json(domain);
+    } catch (err) {
+      res.status(500).json({
+        error: 'SCAN_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  router.post('/capability-map/refresh', async (_req, res) => {
+    if (!ctx.capabilityMapper) {
+      res.status(501).json({ error: 'CapabilityMapper not initialized' });
+      return;
+    }
+
+    try {
+      const map = await ctx.capabilityMapper.refresh();
+      res.status(202).json({
+        status: 'completed',
+        summary: map.summary,
+        generatedAt: map.generatedAt,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === 'REFRESH_IN_PROGRESS') {
+        res.status(409).json({
+          error: 'REFRESH_IN_PROGRESS',
+          message: 'A scan is already running',
+          retryAfter: 10,
+        });
+        return;
+      }
+      res.status(500).json({
+        error: 'REFRESH_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   // ── Project Map ───────────────────────────────────────────────────

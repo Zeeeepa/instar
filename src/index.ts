@@ -11,6 +11,8 @@ export { StateManager } from './core/StateManager.js';
 export { RelationshipManager } from './core/RelationshipManager.js';
 export { ClaudeCliIntelligenceProvider } from './core/ClaudeCliIntelligenceProvider.js';
 export { AnthropicIntelligenceProvider } from './core/AnthropicIntelligenceProvider.js';
+export { ANTHROPIC_MODELS, CLI_MODEL_FLAGS, resolveModelId, resolveCliFlag, getValidTiers, isValidTier } from './core/models.js';
+export type { ModelTierName, AnthropicModelId } from './core/models.js';
 export { FeedbackManager } from './core/FeedbackManager.js';
 export type { FeedbackQualityResult } from './core/FeedbackManager.js';
 export { EvolutionManager } from './core/EvolutionManager.js';
@@ -105,6 +107,8 @@ export type { MigrationResult as SecretMigrationResult } from './core/SecretMigr
 export { GitStateManager } from './core/GitStateManager.js';
 export { ProjectMapper } from './core/ProjectMapper.js';
 export type { ProjectMapConfig, ProjectMap, ProjectMapEntry } from './core/ProjectMapper.js';
+export { CapabilityMapper } from './core/CapabilityMapper.js';
+export type { CapabilityMap, CapabilityDomain, Capability, CapabilityType, CapabilityStatus, Provenance, CapabilityMapperConfig, DriftReport } from './core/CapabilityMapper.js';
 export { CoherenceGate } from './core/CoherenceGate.js';
 export type { CoherenceGateConfig, CoherenceCheckResult, CoherenceCheck, TopicProjectBinding, HighRiskAction } from './core/CoherenceGate.js';
 export { ContextHierarchy } from './core/ContextHierarchy.js';

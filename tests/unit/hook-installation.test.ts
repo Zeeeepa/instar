@@ -36,7 +36,7 @@ describe('Hook installation for external operation safety', () => {
   });
 
   it('installs external-operation-gate.js hook', () => {
-    const hookPath = path.join(projectDir, '.instar', 'hooks', 'external-operation-gate.js');
+    const hookPath = path.join(projectDir, '.instar', 'hooks', 'instar', 'external-operation-gate.js');
     expect(fs.existsSync(hookPath)).toBe(true);
 
     const content = fs.readFileSync(hookPath, 'utf-8');
@@ -47,14 +47,14 @@ describe('Hook installation for external operation safety', () => {
   });
 
   it('hook is executable', () => {
-    const hookPath = path.join(projectDir, '.instar', 'hooks', 'external-operation-gate.js');
+    const hookPath = path.join(projectDir, '.instar', 'hooks', 'instar', 'external-operation-gate.js');
     const stats = fs.statSync(hookPath);
     // Check execute bit (0o100 for owner)
     expect(stats.mode & 0o100).toBeTruthy();
   });
 
   it('hook classifies delete operations correctly in its logic', () => {
-    const hookPath = path.join(projectDir, '.instar', 'hooks', 'external-operation-gate.js');
+    const hookPath = path.join(projectDir, '.instar', 'hooks', 'instar', 'external-operation-gate.js');
     const content = fs.readFileSync(hookPath, 'utf-8');
 
     // Verify the regex patterns exist for each mutability category

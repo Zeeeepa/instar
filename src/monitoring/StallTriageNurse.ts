@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 import type { IntelligenceProvider, IntelligenceOptions } from '../core/types.js';
 import type { StateManager } from '../core/StateManager.js';
 import { DegradationReporter } from './DegradationReporter.js';
+import { ANTHROPIC_MODELS, resolveModelId } from '../core/models.js';
 import type {
   StallTriageConfig,
   TreatmentAction,
@@ -48,7 +49,7 @@ const DEFAULT_POST_INTERVENTION_DELAY_MS = 3000;
 const DEFAULT_CONFIG: Required<StallTriageConfig> = {
   enabled: true,
   apiKey: '',
-  model: process.env.STALL_TRIAGE_MODEL || 'claude-sonnet-4-6',
+  model: resolveModelId(process.env.STALL_TRIAGE_MODEL || 'sonnet'),
   maxTokens: 1024,
   apiTimeoutMs: 15000,
   cooldownMs: 180000,
@@ -124,6 +125,8 @@ export class StallTriageNurse extends EventEmitter {
       ...DEFAULT_CONFIG,
       ...opts?.config,
       apiKey: opts?.config?.apiKey || process.env.ANTHROPIC_API_KEY || '',
+      // Resolve tier names in model config (e.g., 'sonnet' → 'claude-sonnet-4-6')
+      model: resolveModelId(opts?.config?.model || DEFAULT_CONFIG.model),
     };
 
     // Load persisted state

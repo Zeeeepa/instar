@@ -6,22 +6,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .instar/hooks/dangerous-command-guard.sh \"$TOOL_INPUT\"",
+            "command": "bash .instar/hooks/instar/dangerous-command-guard.sh \"$TOOL_INPUT\"",
             "blocking": true
           },
           {
             "type": "command",
-            "command": "bash .instar/hooks/grounding-before-messaging.sh \"$TOOL_INPUT\"",
+            "command": "bash .instar/hooks/instar/grounding-before-messaging.sh \"$TOOL_INPUT\"",
             "blocking": true
           },
           {
             "type": "command",
-            "command": "node .instar/hooks/deferral-detector.js",
+            "command": "node .instar/hooks/instar/deferral-detector.js",
             "timeout": 5000
           },
           {
             "type": "command",
-            "command": "node .instar/hooks/external-communication-guard.js",
+            "command": "node .instar/hooks/instar/external-communication-guard.js",
             "timeout": 5000
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .instar/hooks/free-text-guard.sh",
+            "command": "bash .instar/hooks/instar/free-text-guard.sh",
             "blocking": true,
             "timeout": 5000
           }
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .instar/hooks/session-start.sh",
+            "command": "bash .instar/hooks/instar/session-start.sh",
             "timeout": 5
           }
         ]
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .instar/hooks/session-start.sh",
+            "command": "bash .instar/hooks/instar/session-start.sh",
             "timeout": 5
           }
         ]
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .instar/hooks/session-start.sh",
+            "command": "bash .instar/hooks/instar/session-start.sh",
             "timeout": 5
           }
         ]

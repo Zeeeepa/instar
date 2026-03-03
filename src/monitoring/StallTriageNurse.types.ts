@@ -7,7 +7,7 @@ export interface StallTriageConfig {
   enabled: boolean;
   /** Anthropic API key (falls back to process.env.ANTHROPIC_API_KEY) */
   apiKey?: string;
-  /** Model to use for diagnosis (default: 'claude-sonnet-4-5-20250514') */
+  /** Model to use for diagnosis (default: 'claude-sonnet-4-6') */
   model?: string;
   /** Max tokens for LLM response (default: 1024) */
   maxTokens?: number;

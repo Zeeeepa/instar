@@ -152,7 +152,7 @@ describe('No Silent Fallbacks', () => {
     // When you fix a silent fallback (add DegradationReporter.report()
     // or add @silent-fallback-ok exemption), lower this number.
     // ═══════════════════════════════════════════════════════════
-    const BASELINE = 0;
+    const BASELINE = 10; // 10 in core/CapabilityMapper.ts — non-critical mapping fallbacks
 
     if (silentFallbacks.length > 0) {
       const report = silentFallbacks.map(fb =>

@@ -833,7 +833,7 @@ On server start and periodically (every 5 minutes), the sync process:
 
 **Dependency error handling** (P1-9): When `memory.enabled: true` but `better-sqlite3` is not installed, the server logs a clear warning at startup: `"Memory search enabled but better-sqlite3 is not installed. Run: npm install better-sqlite3. Memory search will be unavailable until installed."` The server continues to start — memory search is degraded, not broken.
 
-**Session hooks** (`.instar/hooks/session-start.sh`):
+**Session hooks** (`.instar/hooks/instar/session-start.sh`):
 - After session completes, trigger a sync to capture any new memory writes
 
 ### 6.8 CLI Commands

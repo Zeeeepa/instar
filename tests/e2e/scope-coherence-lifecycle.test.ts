@@ -289,12 +289,12 @@ describe('Scope Coherence E2E lifecycle', () => {
       });
 
       const result = migrator.migrate();
-      expect(result.upgraded).toContain('hooks/scope-coherence-collector.js (implementation depth tracking)');
-      expect(result.upgraded).toContain('hooks/scope-coherence-checkpoint.js (scope zoom-out checkpoint)');
+      expect(result.upgraded).toContain('hooks/instar/scope-coherence-collector.js (implementation depth tracking)');
+      expect(result.upgraded).toContain('hooks/instar/scope-coherence-checkpoint.js (scope zoom-out checkpoint)');
 
       // Verify files exist
-      expect(fs.existsSync(path.join(stateDir, 'hooks', 'scope-coherence-collector.js'))).toBe(true);
-      expect(fs.existsSync(path.join(stateDir, 'hooks', 'scope-coherence-checkpoint.js'))).toBe(true);
+      expect(fs.existsSync(path.join(stateDir, 'hooks', 'instar', 'scope-coherence-collector.js'))).toBe(true);
+      expect(fs.existsSync(path.join(stateDir, 'hooks', 'instar', 'scope-coherence-checkpoint.js'))).toBe(true);
     });
   });
 });

@@ -15,13 +15,7 @@
 
 import { execFile } from 'node:child_process';
 import type { IntelligenceProvider, IntelligenceOptions } from './types.js';
-
-/** Model mapping: abstract tiers → Claude CLI model flags */
-const MODEL_MAP: Record<string, string> = {
-  fast: 'haiku',
-  balanced: 'sonnet',
-  capable: 'opus',
-};
+import { resolveCliFlag } from './models.js';
 
 const DEFAULT_MODEL = 'fast';
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -34,7 +28,7 @@ export class ClaudeCliIntelligenceProvider implements IntelligenceProvider {
   }
 
   async evaluate(prompt: string, options?: IntelligenceOptions): Promise<string> {
-    const model = MODEL_MAP[options?.model ?? DEFAULT_MODEL] ?? MODEL_MAP[DEFAULT_MODEL];
+    const model = resolveCliFlag(options?.model ?? DEFAULT_MODEL);
     const maxTokens = options?.maxTokens ?? 100;
 
     return new Promise((resolve, reject) => {

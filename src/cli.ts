@@ -1198,4 +1198,211 @@ program
     await nukeAgent(name, { skipConfirm: opts.yes });
   });
 
+// ── Playbook (Context Engineering) ───────────────────────────────
+
+const playbookCmd = program
+  .command('playbook')
+  .description('Context engineering for autonomous AI agents');
+
+playbookCmd
+  .command('init')
+  .description('Initialize playbook for this project (detect Python, create venv, config)')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { playbookInit } = await import('./commands/playbook.js');
+    return playbookInit(opts);
+  });
+
+playbookCmd
+  .command('doctor')
+  .description('Validate Python, venv, config, manifest, and script accessibility')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('-v, --verbose', 'Show detailed paths')
+  .action(async (opts) => {
+    const { playbookDoctor } = await import('./commands/playbook.js');
+    return playbookDoctor(opts);
+  });
+
+playbookCmd
+  .command('status')
+  .description('Show manifest health, item counts, and chain integrity')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (opts) => {
+    const { playbookStatus } = await import('./commands/playbook.js');
+    return playbookStatus(opts);
+  });
+
+playbookCmd
+  .command('list')
+  .description('List manifest items with filtering')
+  .option('--tag <tag>', 'Filter by tag')
+  .option('--type <type>', 'Filter by type')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (opts) => {
+    const { playbookList } = await import('./commands/playbook.js');
+    return playbookList(opts);
+  });
+
+playbookCmd
+  .command('read <itemId>')
+  .description('Display a single manifest item')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (itemId, opts) => {
+    const { playbookRead } = await import('./commands/playbook.js');
+    return playbookRead(itemId, opts);
+  });
+
+playbookCmd
+  .command('add')
+  .description('Add a new context item (routed through delta validator)')
+  .option('-c, --content <content>', 'Item content')
+  .option('-f, --content-file <path>', 'Read content from file')
+  .option('--tags <tags>', 'Comma-separated tags')
+  .option('--type <type>', 'Item type (strategy, lesson, practice, pattern, ...)')
+  .option('--category <category>', 'Item category')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (opts) => {
+    const { playbookAdd } = await import('./commands/playbook.js');
+    return playbookAdd(opts);
+  });
+
+playbookCmd
+  .command('search <query>')
+  .description('Search items by content, tags, or ID')
+  .option('-l, --limit <count>', 'Max results', (v: string) => parseInt(v, 10))
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (query, opts) => {
+    const { playbookSearch } = await import('./commands/playbook.js');
+    return playbookSearch(query, opts);
+  });
+
+playbookCmd
+  .command('assemble')
+  .description('Assemble context for a session (the integration point)')
+  .option('--tags <tags>', 'Comma-separated tags to match')
+  .option('--budget <tokens>', 'Token budget', (v: string) => parseInt(v, 10))
+  .option('--triggers <triggers>', 'Comma-separated trigger types')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output (includes assembled_text)')
+  .action(async (opts) => {
+    const { playbookAssemble } = await import('./commands/playbook.js');
+    return playbookAssemble(opts);
+  });
+
+playbookCmd
+  .command('evaluate [sessionLog]')
+  .description('Evaluate session context usage from a log file')
+  .option('--demo', 'Use built-in demo fixture')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (sessionLog, opts) => {
+    const { playbookEvaluate } = await import('./commands/playbook.js');
+    return playbookEvaluate(sessionLog, opts);
+  });
+
+playbookCmd
+  .command('lifecycle')
+  .description('Run full lifecycle pass (decay, dedup, retirement)')
+  .option('--dry-run', 'Show what would change without modifying')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (opts) => {
+    const { playbookLifecycle } = await import('./commands/playbook.js');
+    return playbookLifecycle(opts);
+  });
+
+playbookCmd
+  .command('validate')
+  .description('Validate manifest schema + chain integrity')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--debug', 'Show full error details')
+  .action(async (opts) => {
+    const { playbookValidate } = await import('./commands/playbook.js');
+    return playbookValidate(opts);
+  });
+
+playbookCmd
+  .command('mount <path>')
+  .description('Mount external manifest as read-only overlay')
+  .requiredOption('-n, --name <name>', 'Mount name')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (mountPath, opts) => {
+    const { playbookMount } = await import('./commands/playbook.js');
+    return playbookMount(mountPath, opts);
+  });
+
+playbookCmd
+  .command('unmount <name>')
+  .description('Remove a mounted manifest')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (name, opts) => {
+    const { playbookUnmount } = await import('./commands/playbook.js');
+    return playbookUnmount(name, opts);
+  });
+
+playbookCmd
+  .command('export')
+  .description('Export manifest for sharing or backup')
+  .option('--format <format>', 'Output format: json or md (default: json)')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (opts) => {
+    const { playbookExport } = await import('./commands/playbook.js');
+    return playbookExport(opts);
+  });
+
+playbookCmd
+  .command('import <file>')
+  .description('Import items (routed through delta validator)')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (filePath, opts) => {
+    const { playbookImport } = await import('./commands/playbook.js');
+    return playbookImport(filePath, opts);
+  });
+
+playbookCmd
+  .command('eject [scriptName]')
+  .description('Copy bundled scripts to local for customization')
+  .option('-a, --all', 'Eject all scripts')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (scriptName, opts) => {
+    const { playbookEject } = await import('./commands/playbook.js');
+    return playbookEject(scriptName, opts);
+  });
+
+playbookCmd
+  .command('user-export <userId>')
+  .description('Export all data for a user (DSAR compliance)')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (userId, opts) => {
+    const { playbookUserExport } = await import('./commands/playbook.js');
+    return playbookUserExport(userId, opts);
+  });
+
+playbookCmd
+  .command('user-delete <userId>')
+  .description('Delete all user data (DSAR compliance)')
+  .option('--confirm', 'Confirm permanent deletion')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (userId, opts) => {
+    const { playbookUserDelete } = await import('./commands/playbook.js');
+    return playbookUserDelete(userId, opts);
+  });
+
+playbookCmd
+  .command('user-audit <userId>')
+  .description('Audit trail of all operations on user data')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--json', 'Machine-readable JSON output')
+  .action(async (userId, opts) => {
+    const { playbookUserAudit } = await import('./commands/playbook.js');
+    return playbookUserAudit(userId, opts);
+  });
+
 program.parse();

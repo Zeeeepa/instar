@@ -42,6 +42,7 @@ import { PostUpdateMigrator } from '../core/PostUpdateMigrator.js';
 import { ProjectMapper } from '../core/ProjectMapper.js';
 import { ContextHierarchy } from '../core/ContextHierarchy.js';
 import { CanonicalState } from '../core/CanonicalState.js';
+import { ManifestIntegrity } from '../security/ManifestIntegrity.js';
 import {
   generateAgentMd,
   generateUserMd,
@@ -247,6 +248,11 @@ async function initFreshProject(projectName: string, options: InitOptions): Prom
   fs.writeFileSync(configFilePath, JSON.stringify(config, null, 2), { mode: 0o600 });
   console.log(`  ${pc.green('✓')} Created .instar/config.json`);
 
+  // Generate manifest signing key (machine-local, never transmitted)
+  const manifestIntegrity = new ManifestIntegrity(path.join(stateDir, 'state'));
+  manifestIntegrity.ensureKey();
+  console.log(`  ${pc.green('✓')} Created manifest signing key`);
+
   // Write default jobs (scheduler enabled by default for fresh projects)
   const defaultJobs = getDefaultJobs(port);
   fs.writeFileSync(
@@ -263,7 +269,7 @@ async function initFreshProject(projectName: string, options: InitOptions): Prom
 
   // Install hooks
   installHooks(stateDir);
-  console.log(`  ${pc.green('✓')} Created .instar/hooks/ (behavioral guardrails)`);
+  console.log(`  ${pc.green('✓')} Created .instar/hooks/instar/ (behavioral guardrails)`);
 
   // Initialize coherence infrastructure
   try {
@@ -549,7 +555,13 @@ async function initExistingProject(options: InitOptions): Promise<void> {
 
   // Install hooks
   installHooks(stateDir);
-  console.log(pc.green('  Created:') + ' .instar/hooks/ (behavioral guardrails)');
+  console.log(pc.green('  Created:') + ' .instar/hooks/instar/ (behavioral guardrails)');
+
+  // Ensure manifest signing key exists (additive — won't overwrite)
+  const manifestIntegrity = new ManifestIntegrity(path.join(stateDir, 'state'));
+  if (manifestIntegrity.ensureKey()) {
+    console.log(pc.green('  Created:') + ' manifest signing key');
+  }
 
   // Initialize coherence infrastructure (additive only)
   try {
@@ -817,6 +829,11 @@ async function initStandaloneAgent(agentName: string, options: InitOptions): Pro
 
   // Cloud backup setup (recommended — protects agent data from machine loss)
   await setupCloudBackup(projectDir, stateDir, agentName);
+
+  // Generate manifest signing key
+  const standaloneIntegrity = new ManifestIntegrity(path.join(stateDir, 'state'));
+  standaloneIntegrity.ensureKey();
+  console.log(`  ${pc.green('✓')} Created manifest signing key`);
 
   // Install behavioral guardrails (hooks + Claude settings)
   try {
@@ -1687,7 +1704,7 @@ Then check each area:
 
 1. **Server health**: curl -s -H "Authorization: Bearer $AUTH" http://localhost:${port}/health — is it responding? Are all fields present? Is status "ok" or "degraded"?
 2. **State files**: Check .instar/state/ — are JSON files parseable? Any empty or corrupted? Try: for f in .instar/state/*.json; do python3 -c "import json; json.load(open('$f'))" 2>&1 || echo "CORRUPT: $f"; done
-3. **Hook files**: Do all hooks in .instar/hooks/ exist and have execute permissions? ls -la .instar/hooks/
+3. **Hook files**: Do all hooks in .instar/hooks/instar/ exist and have execute permissions? ls -la .instar/hooks/instar/
 4. **Job execution**: curl -s -H "Authorization: Bearer $AUTH" http://localhost:${port}/jobs — are any jobs failing repeatedly? Check lastRun and lastError fields.
 5. **Quota**: curl -s -H "Authorization: Bearer $AUTH" http://localhost:${port}/quota — is usage approaching limits?
 6. **Logs**: Check .instar/logs/server.log for recent errors: tail -50 .instar/logs/server.log | grep -i error
@@ -2107,6 +2124,26 @@ Exit silently if continuity is healthy.`,
       tags: ['infrastructure', 'default'],
       telegramNotify: false,
     },
+    {
+      slug: 'capability-audit',
+      name: 'Capability Audit',
+      description: 'Refresh the capability map and detect drift. Compute-first: only spawns LLM if changes detected.',
+      schedule: '0 */6 * * *',
+      priority: 'low',
+      expectedDurationMinutes: 1,
+      model: 'haiku',
+      enabled: true,
+      gate: `curl -sf http://localhost:${port}/health >/dev/null 2>&1`,
+      execute: {
+        type: 'script',
+        value: `AUTH=$(python3 -c "import json; print(json.load(open('.instar/config.json')).get('authToken',''))" 2>/dev/null); REFRESH=$(curl -s -X POST -H "Authorization: Bearer $AUTH" http://localhost:${port}/capability-map/refresh 2>/dev/null); DRIFT=$(curl -s -H "Authorization: Bearer $AUTH" http://localhost:${port}/capability-map/drift 2>/dev/null); ADDED=$(echo "$DRIFT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('added',[])))" 2>/dev/null || echo 0); REMOVED=$(echo "$DRIFT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('removed',[])))" 2>/dev/null || echo 0); CHANGED=$(echo "$DRIFT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('changed',[])))" 2>/dev/null || echo 0); UNMAPPED=$(echo "$DRIFT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('unmapped',[])))" 2>/dev/null || echo 0); if [ "$ADDED" -gt "0" ] || [ "$REMOVED" -gt "0" ] || [ "$CHANGED" -gt "0" ] || [ "$UNMAPPED" -gt "0" ]; then echo "Capability drift detected: +$ADDED -$REMOVED ~$CHANGED ?$UNMAPPED"; echo "$DRIFT" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(f'  + {c[\"id\"]}') for c in d.get('added',[])]; [print(f'  - {r[\"id\"]}') for r in d.get('removed',[])]; [print(f'  ~ {c[\"id\"]} ({c[\"field\"]})') for c in d.get('changed',[])]" 2>/dev/null; else echo "Capability audit: no drift detected."; fi`,
+      },
+      grounding: {
+        requiresIdentity: false,
+        contextFiles: ['.instar/state/capability-manifest.json'],
+      },
+      tags: ['coherence', 'default', 'maintenance'],
+    },
   ];
 }
 
@@ -2385,8 +2422,11 @@ Strip the \`[telegram:N]\` prefix before interpreting the message. Respond natur
 }
 
 function installHooks(stateDir: string): void {
-  const hooksDir = path.join(stateDir, 'hooks');
+  const hooksBaseDir = path.join(stateDir, 'hooks');
+  const hooksDir = path.join(hooksBaseDir, 'instar');
+  const customHooksDir = path.join(hooksBaseDir, 'custom');
   fs.mkdirSync(hooksDir, { recursive: true });
+  fs.mkdirSync(customHooksDir, { recursive: true });
 
   // Session start hook — fires on startup, resume, clear, compact
   // Canonical version kept in sync with PostUpdateMigrator.getSessionStartHook().
@@ -2824,27 +2864,27 @@ function installClaudeSettings(projectDir: string): void {
   const instarBashHooks = [
     {
       type: 'command',
-      command: 'bash .instar/hooks/dangerous-command-guard.sh "$TOOL_INPUT"',
+      command: 'bash .instar/hooks/instar/dangerous-command-guard.sh "$TOOL_INPUT"',
       blocking: true,
     },
     {
       type: 'command',
-      command: 'bash .instar/hooks/grounding-before-messaging.sh "$TOOL_INPUT"',
+      command: 'bash .instar/hooks/instar/grounding-before-messaging.sh "$TOOL_INPUT"',
       blocking: false,
     },
     {
       type: 'command',
-      command: 'node .instar/hooks/deferral-detector.js',
+      command: 'node .instar/hooks/instar/deferral-detector.js',
       timeout: 5000,
     },
     {
       type: 'command',
-      command: 'node .instar/hooks/external-communication-guard.js',
+      command: 'node .instar/hooks/instar/external-communication-guard.js',
       timeout: 5000,
     },
     {
       type: 'command',
-      command: 'node .instar/hooks/post-action-reflection.js',
+      command: 'node .instar/hooks/instar/post-action-reflection.js',
       timeout: 5000,
     },
   ];
@@ -2853,7 +2893,7 @@ function installClaudeSettings(projectDir: string): void {
   const instarMcpHooks = [
     {
       type: 'command',
-      command: 'node .instar/hooks/external-operation-gate.js',
+      command: 'node .instar/hooks/instar/external-operation-gate.js',
       blocking: true,
       timeout: 5000,
     },
@@ -2903,7 +2943,7 @@ function installClaudeSettings(projectDir: string): void {
   // The session-start.sh hook handles event routing internally via CLAUDE_HOOK_MATCHER
   const sessionStartHook = {
     type: 'command',
-    command: 'bash .instar/hooks/session-start.sh',
+    command: 'bash .instar/hooks/instar/session-start.sh',
     timeout: 5,
   };
 
@@ -2959,7 +2999,7 @@ function installClaudeSettings(projectDir: string): void {
   // PostToolUse: scope coherence collector tracks implementation depth
   const scopeCollectorHook = {
     type: 'command',
-    command: 'node .instar/hooks/scope-coherence-collector.js',
+    command: 'node .instar/hooks/instar/scope-coherence-collector.js',
     timeout: 5000,
   };
 
@@ -2972,7 +3012,7 @@ function installClaudeSettings(projectDir: string): void {
   // (scope collector also added to Read and Skill)
   const claimInterceptHook = {
     type: 'command',
-    command: 'node .instar/hooks/claim-intercept.js',
+    command: 'node .instar/hooks/instar/claim-intercept.js',
     timeout: 5000,
   };
 
@@ -2998,14 +3038,14 @@ function installClaudeSettings(projectDir: string): void {
   // Stop: scope coherence checkpoint fires the zoom-out prompt
   const scopeCheckpointHook = {
     type: 'command',
-    command: 'node .instar/hooks/scope-coherence-checkpoint.js',
+    command: 'node .instar/hooks/instar/scope-coherence-checkpoint.js',
     timeout: 10000,
   };
 
   // Stop: claim intercept response checks direct text for false claims
   const claimInterceptResponseHook = {
     type: 'command',
-    command: 'node .instar/hooks/claim-intercept-response.js',
+    command: 'node .instar/hooks/instar/claim-intercept-response.js',
     timeout: 10000,
   };
 

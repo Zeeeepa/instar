@@ -68,102 +68,213 @@ export class PostUpdateMigrator {
 
   /**
    * Re-install hooks with the latest templates.
-   * Hooks are generated infrastructure — always overwrite.
+   * Built-in hooks in instar/ are always overwritten.
+   * Custom hooks in custom/ are never touched.
    */
   private migrateHooks(result: MigrationResult): void {
     const hooksDir = path.join(this.config.stateDir, 'hooks');
-    fs.mkdirSync(hooksDir, { recursive: true });
+    const instarHooksDir = path.join(hooksDir, 'instar');
+    const customHooksDir = path.join(hooksDir, 'custom');
+    fs.mkdirSync(instarHooksDir, { recursive: true });
+    fs.mkdirSync(customHooksDir, { recursive: true });
+
+    // Migrate from flat layout to directory layout if needed
+    this.migrateHookLayout(hooksDir, instarHooksDir, result);
 
     try {
       // Session start hook — the most important one for self-discovery
-      fs.writeFileSync(path.join(hooksDir, 'session-start.sh'), this.getSessionStartHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/session-start.sh (capability awareness)');
+      fs.writeFileSync(path.join(instarHooksDir, 'session-start.sh'), this.getSessionStartHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/session-start.sh (capability awareness)');
     } catch (err) {
       result.errors.push(`session-start.sh: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'dangerous-command-guard.sh'), this.getDangerousCommandGuard(), { mode: 0o755 });
-      result.upgraded.push('hooks/dangerous-command-guard.sh');
+      fs.writeFileSync(path.join(instarHooksDir, 'dangerous-command-guard.sh'), this.getDangerousCommandGuard(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/dangerous-command-guard.sh');
     } catch (err) {
       result.errors.push(`dangerous-command-guard.sh: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'grounding-before-messaging.sh'), this.getGroundingBeforeMessaging(), { mode: 0o755 });
-      result.upgraded.push('hooks/grounding-before-messaging.sh');
+      fs.writeFileSync(path.join(instarHooksDir, 'grounding-before-messaging.sh'), this.getGroundingBeforeMessaging(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/grounding-before-messaging.sh');
     } catch (err) {
       result.errors.push(`grounding-before-messaging.sh: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'compaction-recovery.sh'), this.getCompactionRecovery(), { mode: 0o755 });
-      result.upgraded.push('hooks/compaction-recovery.sh');
+      fs.writeFileSync(path.join(instarHooksDir, 'compaction-recovery.sh'), this.getCompactionRecovery(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/compaction-recovery.sh');
     } catch (err) {
       result.errors.push(`compaction-recovery.sh: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'external-operation-gate.js'), this.getExternalOperationGateHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/external-operation-gate.js (MCP tool safety gate)');
+      fs.writeFileSync(path.join(instarHooksDir, 'external-operation-gate.js'), this.getExternalOperationGateHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/external-operation-gate.js (MCP tool safety gate)');
     } catch (err) {
       result.errors.push(`external-operation-gate.js: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'deferral-detector.js'), this.getDeferralDetectorHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/deferral-detector.js (anti-deferral checklist)');
+      fs.writeFileSync(path.join(instarHooksDir, 'deferral-detector.js'), this.getDeferralDetectorHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/deferral-detector.js (anti-deferral checklist)');
     } catch (err) {
       result.errors.push(`deferral-detector.js: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'post-action-reflection.js'), this.getPostActionReflectionHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/post-action-reflection.js (evolution awareness)');
+      fs.writeFileSync(path.join(instarHooksDir, 'post-action-reflection.js'), this.getPostActionReflectionHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/post-action-reflection.js (evolution awareness)');
     } catch (err) {
       result.errors.push(`post-action-reflection.js: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'external-communication-guard.js'), this.getExternalCommunicationGuardHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/external-communication-guard.js (identity grounding)');
+      fs.writeFileSync(path.join(instarHooksDir, 'external-communication-guard.js'), this.getExternalCommunicationGuardHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/external-communication-guard.js (identity grounding)');
     } catch (err) {
       result.errors.push(`external-communication-guard.js: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'scope-coherence-collector.js'), this.getScopeCoherenceCollectorHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/scope-coherence-collector.js (implementation depth tracking)');
+      fs.writeFileSync(path.join(instarHooksDir, 'scope-coherence-collector.js'), this.getScopeCoherenceCollectorHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/scope-coherence-collector.js (implementation depth tracking)');
     } catch (err) {
       result.errors.push(`scope-coherence-collector.js: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'scope-coherence-checkpoint.js'), this.getScopeCoherenceCheckpointHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/scope-coherence-checkpoint.js (scope zoom-out checkpoint)');
+      fs.writeFileSync(path.join(instarHooksDir, 'scope-coherence-checkpoint.js'), this.getScopeCoherenceCheckpointHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/scope-coherence-checkpoint.js (scope zoom-out checkpoint)');
     } catch (err) {
       result.errors.push(`scope-coherence-checkpoint.js: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'free-text-guard.sh'), this.getFreeTextGuardHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/free-text-guard.sh (blocks AskUserQuestion for passwords/credentials)');
+      fs.writeFileSync(path.join(instarHooksDir, 'free-text-guard.sh'), this.getFreeTextGuardHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/free-text-guard.sh (blocks AskUserQuestion for passwords/credentials)');
     } catch (err) {
       result.errors.push(`free-text-guard.sh: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'claim-intercept.js'), this.getClaimInterceptHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/claim-intercept.js (false claim detection on tool output)');
+      fs.writeFileSync(path.join(instarHooksDir, 'claim-intercept.js'), this.getClaimInterceptHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/claim-intercept.js (false claim detection on tool output)');
     } catch (err) {
       result.errors.push(`claim-intercept.js: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     try {
-      fs.writeFileSync(path.join(hooksDir, 'claim-intercept-response.js'), this.getClaimInterceptResponseHook(), { mode: 0o755 });
-      result.upgraded.push('hooks/claim-intercept-response.js (false claim detection on responses)');
+      fs.writeFileSync(path.join(instarHooksDir, 'claim-intercept-response.js'), this.getClaimInterceptResponseHook(), { mode: 0o755 });
+      result.upgraded.push('hooks/instar/claim-intercept-response.js (false claim detection on responses)');
     } catch (err) {
       result.errors.push(`claim-intercept-response.js: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Migrate hooks from flat .instar/hooks/ layout to .instar/hooks/instar/ subdirectory.
+   * Detects agent-modified built-in hooks by comparing content hashes and moves them
+   * to .instar/hooks/custom/ with provenance 'inherited'.
+   */
+  private migrateHookLayout(hooksDir: string, instarHooksDir: string, result: MigrationResult): void {
+    // List of known built-in hook filenames
+    const builtinHooks = [
+      'session-start.sh', 'dangerous-command-guard.sh', 'grounding-before-messaging.sh',
+      'compaction-recovery.sh', 'external-operation-gate.js', 'deferral-detector.js',
+      'post-action-reflection.js', 'external-communication-guard.js',
+      'scope-coherence-collector.js', 'scope-coherence-checkpoint.js',
+      'free-text-guard.sh', 'claim-intercept.js', 'claim-intercept-response.js',
+    ];
+
+    // Check if we're still on the old flat layout (hooks directly in .instar/hooks/)
+    const hasOldLayout = builtinHooks.some(name => {
+      const oldPath = path.join(hooksDir, name);
+      return fs.existsSync(oldPath) && !fs.statSync(oldPath).isDirectory();
+    });
+
+    if (!hasOldLayout) return;
+
+    // Already migrated or fresh install — instar/ dir has the hooks
+    if (fs.existsSync(path.join(instarHooksDir, 'session-start.sh'))) return;
+
+    const customHooksDir = path.join(hooksDir, 'custom');
+
+    for (const hookName of builtinHooks) {
+      const oldPath = path.join(hooksDir, hookName);
+      if (!fs.existsSync(oldPath)) continue;
+
+      try {
+        // Move built-in hooks to instar/ — they'll be overwritten by the current
+        // migrateHooks() call anyway, but cleaning up the old location is important
+        fs.unlinkSync(oldPath);
+      } catch {
+        // If we can't remove, it's not critical — the new hooks will be written
+        // to instar/ regardless
+      }
+    }
+
+    // Check for any non-builtin hooks in the old flat directory (agent-created)
+    try {
+      const remaining = fs.readdirSync(hooksDir).filter(name => {
+        const fullPath = path.join(hooksDir, name);
+        return !fs.statSync(fullPath).isDirectory() && !builtinHooks.includes(name);
+      });
+
+      for (const customHook of remaining) {
+        const oldPath = path.join(hooksDir, customHook);
+        const newPath = path.join(customHooksDir, customHook);
+        try {
+          fs.renameSync(oldPath, newPath);
+          result.upgraded.push(`hooks: migrated custom hook ${customHook} to hooks/custom/`);
+        } catch (err) {
+          result.errors.push(`hook migration ${customHook}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    } catch {
+      // Directory read failed — not critical
+    }
+
+    result.upgraded.push('hooks: migrated from flat layout to instar/custom/ directory structure');
+  }
+
+  /**
+   * Migrate settings.json hook command paths from .instar/hooks/X to .instar/hooks/instar/X.
+   * This handles the transition for agents that already have hooks configured.
+   */
+  private migrateSettingsHookPaths(hookEntries: unknown[], result: MigrationResult): void {
+    const oldPrefix = '.instar/hooks/';
+    const newPrefix = '.instar/hooks/instar/';
+
+    for (const entry of hookEntries) {
+      if (typeof entry !== 'object' || entry === null) continue;
+
+      // Handle entries with nested hooks arrays (matcher-based entries)
+      const entryObj = entry as Record<string, unknown>;
+      if (Array.isArray(entryObj.hooks)) {
+        for (const hook of entryObj.hooks) {
+          if (typeof hook === 'object' && hook !== null) {
+            const hookObj = hook as Record<string, unknown>;
+            if (typeof hookObj.command === 'string') {
+              const cmd = hookObj.command;
+              // Only migrate paths that point to flat layout (not already in instar/ or custom/)
+              if (cmd.includes(oldPrefix) && !cmd.includes(newPrefix) && !cmd.includes('.instar/hooks/custom/')) {
+                hookObj.command = cmd.replace(oldPrefix, newPrefix);
+              }
+            }
+          }
+        }
+      }
+
+      // Handle direct hook entries (not nested)
+      if (typeof entryObj.command === 'string') {
+        const cmd = entryObj.command;
+        if (cmd.includes(oldPrefix) && !cmd.includes(newPrefix) && !cmd.includes('.instar/hooks/custom/')) {
+          entryObj.command = cmd.replace(oldPrefix, newPrefix);
+        }
+      }
     }
   }
 
@@ -401,6 +512,38 @@ How it works:
       result.skipped.push('CLAUDE.md: External Operation Safety section already present');
     }
 
+    // Playbook — adaptive context engineering system
+    if (!content.includes('Playbook') || !content.includes('instar playbook')) {
+      const section = `
+### Playbook — Adaptive Context Engineering
+
+The Playbook system gives you a living knowledge base that makes every session smarter than the last. Instead of loading the same static context every time, Playbook curates a manifest of context items — facts, lessons, patterns, safety rules — and selects exactly what's relevant for each session based on triggers, token budgets, and usefulness scores.
+
+**Getting started:**
+\`\`\`bash
+instar playbook init       # Initialize the playbook system
+instar playbook doctor     # Verify everything is healthy
+\`\`\`
+
+**Core commands:**
+- \`instar playbook status\` — Overview of your manifest
+- \`instar playbook list\` — All context items with metadata
+- \`instar playbook add '<json>'\` — Add a new context item
+- \`instar playbook search --tag <tag>\` — Find items by tag
+- \`instar playbook assemble --triggers session-start\` — Preview what would load for a trigger
+- \`instar playbook evaluate\` — Run lifecycle: score usefulness, decay stale items, deduplicate
+
+**When to add context items:** After learning a lesson that cost time, when discovering a recurring pattern, when safety-critical knowledge should survive compaction, or when the user teaches you something project-specific.
+
+**The principle:** Your context should evolve with you. Every session that adds a lesson, scores an item's usefulness, or retires stale knowledge makes the next session more grounded. Run \`instar playbook init\` to get started.
+`;
+      content += '\n' + section;
+      patched = true;
+      result.upgraded.push('CLAUDE.md: added Playbook section');
+    } else {
+      result.skipped.push('CLAUDE.md: Playbook section already present');
+    }
+
     // Session Continuity — ensure agents know how to handle respawn context
     if (this.config.hasTelegram && !content.includes('Session Continuity') && !content.includes('CONTINUATION')) {
       const section = `
@@ -524,7 +667,7 @@ The user has been talking to you (possibly for days). A generic greeting like "H
 
     const sessionStartHook = {
       type: 'command',
-      command: 'bash .instar/hooks/session-start.sh',
+      command: 'bash .instar/hooks/instar/session-start.sh',
       timeout: 5,
     };
 
@@ -537,6 +680,9 @@ The user has been talking to you (possibly for days). A generic greeting like "H
       ];
       patched = true;
       result.upgraded.push('.claude/settings.json: added SessionStart hooks (startup/resume/compact)');
+    } else {
+      // Migrate existing session-start paths from flat to instar/ subdirectory
+      this.migrateSettingsHookPaths(hooks.SessionStart as unknown[], result);
     }
 
     // Add PreToolUse MCP matcher for external operation gate
@@ -544,13 +690,15 @@ The user has been talking to you (possibly for days). A generic greeting like "H
       hooks.PreToolUse = [];
     }
     const preToolUse = hooks.PreToolUse as Array<{ matcher?: string; hooks?: unknown[] }>;
+    // Migrate existing PreToolUse paths from flat to instar/ subdirectory
+    this.migrateSettingsHookPaths(preToolUse as unknown[], result);
     const hasMcpMatcher = preToolUse.some(e => e.matcher === 'mcp__.*');
     if (!hasMcpMatcher) {
       preToolUse.push({
         matcher: 'mcp__.*',
         hooks: [{
           type: 'command',
-          command: 'node .instar/hooks/external-operation-gate.js',
+          command: 'node .instar/hooks/instar/external-operation-gate.js',
           blocking: true,
           timeout: 5000,
         }],
@@ -599,6 +747,16 @@ The user has been talking to you (possibly for days). A generic greeting like "H
         patched = true;
         result.upgraded.push('.claude/settings.json: migrated compaction hook from Notification to SessionStart');
       }
+    }
+
+    // Migrate all hook paths from flat layout to instar/ subdirectory
+    if (hooks.PostToolUse) {
+      this.migrateSettingsHookPaths(hooks.PostToolUse as unknown[], result);
+      patched = true;
+    }
+    if (hooks.Stop) {
+      this.migrateSettingsHookPaths(hooks.Stop as unknown[], result);
+      patched = true;
     }
 
     if (patched) {

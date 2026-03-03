@@ -8,14 +8,19 @@
 
 ## What Changed
 
-**SemanticMemory disk I/O error now includes diagnostic guidance**: When SQLite fails to open `semantic.db` due to a disk I/O error (SQLITE_IOERR), the degradation report now includes actionable instructions — specifically to run `df -h` to check disk space and the path to the affected database file. Previously this was an opaque error message with no indication of how to recover.
+<!-- Describe what changed technically. What new features, APIs, behavioral changes? -->
+<!-- Write this for the AGENT — they need to understand the system deeply. -->
 
 ## What to Tell Your User
 
-- **Clearer disk errors**: If your knowledge graph fails to load with a disk error, Instar will now tell you exactly what to check and which file is affected. Makes it much easier to diagnose "disk full" situations.
+<!-- Write talking points the agent should relay to their user. -->
+<!-- This should be warm, conversational, user-facing — not a changelog. -->
+<!-- Focus on what THEY can now do, not internal plumbing. -->
+
+- **[Feature name]**: "[Brief, friendly description of what this means for the user]"
 
 ## Summary of New Capabilities
 
 | Capability | How to Use |
 |-----------|-----------|
-| Actionable SemanticMemory disk error messages | Automatic — shown in server startup output and Telegram alerts |
+| [Capability] | [Endpoint, command, or "automatic"] |

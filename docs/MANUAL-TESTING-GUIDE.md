@@ -40,7 +40,7 @@ npx instar
 - Wizard detects git repo, offers "Set up a new project agent"
 - After completion, verify files exist:
   - `.instar/AGENT.md`, `USER.md`, `MEMORY.md`, `config.json`, `jobs.json`, `users.json`
-  - `.instar/hooks/session-start.sh`, `compaction-recovery.sh`, `dangerous-command-guard.sh`
+  - `.instar/hooks/instar/session-start.sh`, `compaction-recovery.sh`, `dangerous-command-guard.sh`
   - `CLAUDE.md` (at project root)
   - `.claude/settings.json` (hook configuration)
 - `users.json` contains one user (you, as admin)

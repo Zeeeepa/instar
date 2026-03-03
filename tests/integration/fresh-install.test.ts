@@ -111,7 +111,7 @@ describe('Fresh install: instar init <project-name>', () => {
     expect(fs.existsSync(jobsPath)).toBe(true);
 
     const jobs = JSON.parse(fs.readFileSync(jobsPath, 'utf-8'));
-    expect(jobs.length).toBe(19);
+    expect(jobs.length).toBe(20);
 
     const slugs = jobs.map((j: any) => j.slug);
     // Original 12 coherence jobs
@@ -137,10 +137,12 @@ describe('Fresh install: instar init <project-name>', () => {
     expect(slugs).toContain('memory-export');
     // Infrastructure jobs
     expect(slugs).toContain('git-sync');
+    // Capability audit
+    expect(slugs).toContain('capability-audit');
   });
 
   it('installs behavioral hooks', () => {
-    const hooksDir = path.join(projectDir, '.instar', 'hooks');
+    const hooksDir = path.join(projectDir, '.instar', 'hooks', 'instar');
     expect(fs.existsSync(hooksDir)).toBe(true);
 
     const hooks = fs.readdirSync(hooksDir);
@@ -154,6 +156,10 @@ describe('Fresh install: instar init <project-name>', () => {
       const stats = fs.statSync(path.join(hooksDir, hook));
       expect(stats.mode & 0o111).toBeGreaterThan(0); // Has execute bit
     }
+
+    // Verify custom hooks directory exists
+    const customHooksDir = path.join(projectDir, '.instar', 'hooks', 'custom');
+    expect(fs.existsSync(customHooksDir)).toBe(true);
   });
 
   it('creates .claude/settings.json with hook config', () => {
@@ -187,7 +193,7 @@ describe('Fresh install: instar init <project-name>', () => {
   });
 
   it('grounding-before-messaging.sh calls convergence check', () => {
-    const hookPath = path.join(projectDir, '.instar', 'hooks', 'grounding-before-messaging.sh');
+    const hookPath = path.join(projectDir, '.instar', 'hooks', 'instar', 'grounding-before-messaging.sh');
     const content = fs.readFileSync(hookPath, 'utf-8');
     expect(content).toContain('convergence-check.sh'); // references convergence check
     expect(content).toContain('PRE-MESSAGE GROUNDING'); // identity injection phase

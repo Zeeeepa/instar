@@ -1,6 +1,6 @@
 {
   "name": "instar",
-  "version": "0.10.9",
+  "version": "0.11.0",
   "description": "Persistent autonomy infrastructure for AI agents",
   "type": "module",
   "main": "dist/index.js",
@@ -15,7 +15,8 @@
     "instar": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "generate:manifest": "node scripts/generate-builtin-manifest.cjs",
+    "build": "node scripts/generate-builtin-manifest.cjs && tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -52,6 +53,8 @@
     "dashboard",
     "upgrades",
     "src/templates",
+    "src/data",
+    "playbook-scripts",
     ".claude/skills/setup-wizard",
     ".claude/skills/secret-setup",
     ".claude/hooks",

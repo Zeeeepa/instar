@@ -50,6 +50,7 @@ import { MultiMachineCoordinator } from '../core/MultiMachineCoordinator.js';
 import { MachineIdentityManager } from '../core/MachineIdentity.js';
 import { GitSyncManager } from '../core/GitSync.js';
 import { ProjectMapper } from '../core/ProjectMapper.js';
+import { CapabilityMapper } from '../core/CapabilityMapper.js';
 import { CoherenceGate } from '../core/CoherenceGate.js';
 import { ContextHierarchy } from '../core/ContextHierarchy.js';
 import { CanonicalState } from '../core/CanonicalState.js';
@@ -1977,6 +1978,22 @@ export async function startServer(options: StartOptions): Promise<void> {
       console.error(`  Project map generation failed (non-critical): ${err instanceof Error ? err.message : err}`);
     }
 
+    // Capability Map — fractal self-knowledge for agent introspection
+    const capabilityMapper = new CapabilityMapper({
+      projectDir: config.projectDir,
+      stateDir: config.stateDir,
+      projectName: config.projectName,
+      version: config.version || '0.0.0',
+      port: config.port,
+    });
+    // Initial map generation (async, non-blocking)
+    capabilityMapper.refresh().then(() => {
+      console.log(pc.green('  Capability map generated'));
+    }).catch((err: Error) => {
+      // @silent-fallback-ok — capability map non-critical at startup
+      console.error(`  Capability map generation failed (non-critical): ${err.message}`);
+    });
+
     const coherenceGate = new CoherenceGate({
       projectDir: config.projectDir,
       stateDir: config.stateDir,
@@ -2249,7 +2266,7 @@ export async function startServer(options: StartOptions): Promise<void> {
       console.log(pc.green(`  System Reviewer: ${probes.length} probes registered`));
     }
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, capabilityMapper, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
     await server.start();
 
     // Connect DegradationReporter downstream systems now that everything is initialized.

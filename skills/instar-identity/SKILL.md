@@ -157,7 +157,7 @@ Instar registers two Claude Code hooks that fire automatically.
 
 ### Session Start Hook
 
-**File**: `.instar/hooks/session-start.sh`
+**File**: `.instar/hooks/instar/session-start.sh`
 
 Fires at every session start (PostToolUse on the first tool call). Outputs a compact orientation:
 

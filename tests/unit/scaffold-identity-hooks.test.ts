@@ -13,13 +13,13 @@ describe('Scaffold templates — identity hook references', () => {
   it('generates CLAUDE.md with session-start hook reference', () => {
     const content = generateClaudeMd('test-project', 'TestAgent', 4040, false);
 
-    expect(content).toContain('.instar/hooks/session-start.sh');
+    expect(content).toContain('.instar/hooks/instar/session-start.sh');
   });
 
   it('generates CLAUDE.md with compaction-recovery hook reference', () => {
     const content = generateClaudeMd('test-project', 'TestAgent', 4040, false);
 
-    expect(content).toContain('.instar/hooks/compaction-recovery.sh');
+    expect(content).toContain('.instar/hooks/instar/compaction-recovery.sh');
   });
 
   it('includes identity hooks section before agent infrastructure', () => {
