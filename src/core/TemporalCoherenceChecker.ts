@@ -107,7 +107,7 @@ export interface TemporalCoherenceConfig {
 // ── Constants ────────────────────────────────────────────────────────
 
 const DEFAULT_STATE_DOCUMENTS = ['AGENT.md', '.instar/reflections.md'];
-const DEFAULT_MAX_CHARS_PER_DOC = 2000;
+const DEFAULT_MAX_CHARS_PER_DOC = 4000;
 const DEFAULT_TIMELINE_WINDOW_HOURS = 720; // 30 days
 const SEVERITY_ORDER: Record<TemporalSeverity, number> = { INFO: 0, WARN: 1, BLOCK: 2 };
 

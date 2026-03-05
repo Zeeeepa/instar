@@ -250,7 +250,7 @@ export class SessionActivitySentinel {
 
     const response = await this.config.intelligence.evaluate(prompt, {
       model: 'fast',      // Haiku tier for cost efficiency
-      maxTokens: 800,
+      maxTokens: 1500,
       temperature: 0.3,
     });
 
@@ -288,13 +288,13 @@ export class SessionActivitySentinel {
 
     if (unit.telegramContent) {
       lines.push('=== CONVERSATION (human + agent) ===');
-      lines.push(this.truncate(unit.telegramContent, 3000));
+      lines.push(this.truncate(unit.telegramContent, 6000));
       lines.push('');
     }
 
     if (unit.sessionContent) {
       lines.push('=== SESSION OUTPUT (agent actions) ===');
-      lines.push(this.truncate(unit.sessionContent, 3000));
+      lines.push(this.truncate(unit.sessionContent, 6000));
       lines.push('');
     }
 
@@ -350,7 +350,7 @@ export class SessionActivitySentinel {
 
     const response = await this.config.intelligence.evaluate(prompt, {
       model: 'fast',
-      maxTokens: 1024,
+      maxTokens: 2000,
       temperature: 0.3,
     });
 
@@ -456,7 +456,7 @@ export class SessionActivitySentinel {
         try {
           const response = await this.config.intelligence.evaluate(item.content, {
             model: 'fast',
-            maxTokens: 800,
+            maxTokens: 1500,
             temperature: 0.3,
           });
 

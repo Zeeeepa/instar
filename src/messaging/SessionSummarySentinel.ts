@@ -180,7 +180,7 @@ export class SessionSummarySentinel {
       try {
         const response = await this.config.intelligence!.evaluate(
           SUMMARY_PROMPT + trimmedOutput,
-          { model: 'fast', maxTokens: 300 },
+          { model: 'fast', maxTokens: 1000 },
         );
 
         const parsed = this.parseLlmResponse(response);

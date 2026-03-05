@@ -11,13 +11,16 @@
 import { Cron } from 'croner';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
+import { ExecutionJournal } from '../core/ExecutionJournal.js';
+import { JobReflector } from '../core/JobReflector.js';
 import { loadJobs } from './JobLoader.js';
 import { SkipLedger } from './SkipLedger.js';
 import { classifySessionDeath } from '../monitoring/QuotaExhaustionDetector.js';
 import type { SessionManager } from '../core/SessionManager.js';
 import type { StateManager } from '../core/StateManager.js';
 import type { QuotaTracker } from '../monitoring/QuotaTracker.js';
-import type { MessagingAdapter, SkipReason } from '../core/types.js';
+import type { IntelligenceProvider, MessagingAdapter, SkipReason } from '../core/types.js';
 import { TOPIC_STYLE } from '../messaging/TelegramAdapter.js';
 import type { JobDefinition, JobSchedulerConfig, JobState, JobPriority } from '../core/types.js';
 import type { TelegramAdapter } from '../messaging/TelegramAdapter.js';
@@ -49,6 +52,7 @@ export class JobScheduler {
   private config: JobSchedulerConfig;
   private sessionManager: SessionManager;
   private state: StateManager;
+  private stateDir: string;
   private skipLedger: SkipLedger;
   private jobs: JobDefinition[] = [];
   private cronTasks: Map<string, Cron> = new Map();
@@ -71,6 +75,9 @@ export class JobScheduler {
   /** Optional job claim manager for multi-machine deduplication (Phase 4C) */
   private claimManager: JobClaimManager | null = null;
 
+  /** Optional LLM provider for per-job reflection (Living Skills Phase 4) */
+  private intelligence: IntelligenceProvider | null = null;
+
   constructor(
     config: JobSchedulerConfig,
     sessionManager: SessionManager,
@@ -80,6 +87,7 @@ export class JobScheduler {
     this.config = config;
     this.sessionManager = sessionManager;
     this.state = state;
+    this.stateDir = stateDir;
     this.skipLedger = new SkipLedger(stateDir);
   }
 
@@ -123,6 +131,13 @@ export class JobScheduler {
    */
   setJobClaimManager(manager: JobClaimManager): void {
     this.claimManager = manager;
+  }
+
+  /**
+   * Set the intelligence provider for per-job LLM reflection (Living Skills Phase 4).
+   */
+  setIntelligence(provider: IntelligenceProvider): void {
+    this.intelligence = provider;
   }
 
   /**
@@ -364,6 +379,17 @@ export class JobScheduler {
       grounding: job.grounding ?? null,
     });
 
+    // Create Living Skills sentinel file if enabled (allows hook to detect opt-in)
+    if (job.livingSkills?.enabled) {
+      const lsDir = path.join(this.stateDir, 'state', 'execution-journal');
+      try {
+        fs.mkdirSync(lsDir, { recursive: true });
+        fs.writeFileSync(path.join(lsDir, `_ls-enabled-${job.slug}`), '');
+      } catch (err) {
+        console.error(`[scheduler] Failed to create Living Skills sentinel for "${job.slug}": ${err}`);
+      }
+    }
+
     this.sessionManager.spawnSession({
       name: sessionName,
       prompt,
@@ -535,6 +561,35 @@ export class JobScheduler {
     // Alert on consecutive failures
     if (failed && jobState.lastError) {
       this.alertOnConsecutiveFailures(job, jobState.consecutiveFailures, jobState.lastError);
+    }
+
+    // Finalize Living Skills execution journal if enabled
+    if (job.livingSkills?.enabled) {
+      try {
+        const journal = new ExecutionJournal(this.stateDir);
+        const definedSteps = (job.livingSkills.definedSteps ?? []).map(s =>
+          typeof s === 'string' ? s : s.step,
+        );
+        journal.finalizeSession({
+          sessionId,
+          jobSlug: job.slug,
+          definedSteps,
+          outcome: failed ? 'failure' : 'success',
+          startedAt: existingState?.lastRun ?? session.startedAt,
+        });
+        // Clean up sentinel file
+        const sentinelPath = path.join(this.stateDir, 'state', 'execution-journal', `_ls-enabled-${job.slug}`);
+        try { fs.unlinkSync(sentinelPath); } catch { /* already gone */ }
+      } catch (err) {
+        console.error(`[scheduler] ExecutionJournal finalization failed for "${job.slug}": ${err}`);
+      }
+
+      // Per-job LLM reflection (Living Skills Phase 4) — enabled by default
+      if (job.livingSkills.perJobReflection !== false && this.intelligence) {
+        this.runJobReflection(job.slug, sessionId, job.topicId, job.livingSkills.reflectionModel).catch(err => {
+          console.error(`[scheduler] Per-job reflection failed for "${job.slug}": ${err}`);
+        });
+      }
     }
 
     // Try to drain the queue now that a slot is available
@@ -864,6 +919,47 @@ export class JobScheduler {
       // If overdue by more than 1.5x the interval, trigger immediately
       if (timeSinceLastRun > intervalMs * 1.5) {
         this.triggerJob(job.slug, 'missed');
+      }
+    }
+  }
+
+  /**
+   * Run per-job LLM reflection after execution (Living Skills Phase 4).
+   * Fire-and-forget — errors are logged, not thrown.
+   */
+  private async runJobReflection(
+    jobSlug: string,
+    sessionId: string,
+    topicId?: number,
+    reflectionModel?: import('../core/types.js').ModelTier | null,
+  ): Promise<void> {
+    if (!this.intelligence) return;
+
+    // Map ModelTier (opus/sonnet/haiku) to IntelligenceOptions model (capable/balanced/fast)
+    const MODEL_MAP: Record<string, 'fast' | 'balanced' | 'capable'> = {
+      opus: 'capable',
+      sonnet: 'balanced',
+      haiku: 'fast',
+    };
+
+    const model = reflectionModel ? MODEL_MAP[reflectionModel] ?? 'capable' : 'capable';
+
+    const reflector = new JobReflector({
+      stateDir: this.stateDir,
+      intelligence: this.intelligence,
+      model,
+    });
+
+    const insight = await reflector.reflect(jobSlug, { sessionId });
+    if (!insight) return;
+
+    // Send reflection to the job's Telegram topic
+    if (this.telegram && topicId) {
+      const formatted = reflector.formatInsight(insight);
+      try {
+        await this.telegram.sendToTopic(topicId, formatted);
+      } catch {
+        // Topic may not exist — not critical
       }
     }
   }

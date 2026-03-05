@@ -50,7 +50,7 @@ const DEFAULT_CONFIG: Required<StallTriageConfig> = {
   enabled: true,
   apiKey: '',
   model: resolveModelId(process.env.STALL_TRIAGE_MODEL || 'sonnet'),
-  maxTokens: 1024,
+  maxTokens: 2000,
   apiTimeoutMs: 15000,
   cooldownMs: 180000,
   verifyDelayMs: 10000,

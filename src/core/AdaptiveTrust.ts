@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { OperationMutability, TrustLevel, TrustSource, AutonomyBehavior } from './ExternalOperationGate.js';
+import type { TrustRecovery } from './TrustRecovery.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -141,11 +142,21 @@ export class AdaptiveTrust {
   private profilePath: string;
   private profile: TrustProfile;
   private changeLog: TrustChangeEvent[] = [];
+  private trustRecovery: TrustRecovery | null = null;
 
   constructor(config: AdaptiveTrustConfig) {
     this.config = config;
     this.profilePath = path.join(config.stateDir, 'state', 'trust-profile.json');
     this.profile = this.loadOrCreateProfile();
+  }
+
+  /**
+   * Wire TrustRecovery for incident tracking and recovery streaks.
+   * When set, incidents are forwarded for recovery tracking, and
+   * successful operations increment recovery counters.
+   */
+  setTrustRecovery(recovery: TrustRecovery): void {
+    this.trustRecovery = recovery;
   }
 
   /**
@@ -193,6 +204,13 @@ export class AdaptiveTrust {
 
     this.save();
 
+    // Feed success to TrustRecovery for recovery streak tracking
+    if (this.trustRecovery) {
+      this.trustRecovery.recordSuccess(service, operation);
+      // Note: Recovery suggestions are surfaced via TrustRecovery.getPendingRecoveries()
+      // and checked in the autonomy dashboard / Telegram notifications
+    }
+
     // Check if we should suggest elevation
     if (this.config.autoElevateEnabled !== false) {
       return this.checkElevation(service, operation);
@@ -208,12 +226,17 @@ export class AdaptiveTrust {
     const serviceTrust = this.ensureServiceTrust(service);
     const dropLevel = this.config.incidentDropLevel ?? 'approve-always';
 
+    const currentEntry = serviceTrust.operations[operation];
+    const currentLevel = currentEntry?.level ?? DEFAULT_TRUST[operation];
+
     serviceTrust.history.incidentCount++;
     serviceTrust.history.lastIncident = new Date().toISOString();
     serviceTrust.history.streakSinceIncident = 0;
 
-    const currentEntry = serviceTrust.operations[operation];
-    const currentLevel = currentEntry?.level ?? DEFAULT_TRUST[operation];
+    // Forward to TrustRecovery for recovery tracking
+    if (this.trustRecovery) {
+      this.trustRecovery.recordIncident(service, operation, currentLevel, dropLevel, reason);
+    }
 
     // Only drop if current level is less restrictive than drop level
     if (this.compareTrust(currentLevel, dropLevel) > 0) {

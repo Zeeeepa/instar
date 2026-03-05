@@ -196,7 +196,8 @@ export class OrphanProcessReaper extends EventEmitter {
     if (newExternalAlerts.length > 0 && alertCallback && externalAlertCooledDown) {
       const totalExternal = external.length;
       const totalMemMB = Math.round(external.reduce((sum, p) => sum + p.rssKB, 0) / 1024);
-      const msg = `${totalExternal} external Claude process(es) detected (${totalMemMB}MB total). Likely VS Code / terminal sessions. Use API /monitoring/processes to inspect.`;
+      const processWord = totalExternal === 1 ? 'process' : 'processes';
+      const msg = `Found ${totalExternal} Claude ${processWord} running outside your agent (using ${totalMemMB}MB of memory). This is usually from VS Code or a terminal session you have open — no action needed if that's the case.\n\nIf you're not actively using Claude elsewhere, reply "clean processes" to free up the memory.`;
 
       try {
         await alertCallback(msg);
@@ -211,11 +212,8 @@ export class OrphanProcessReaper extends EventEmitter {
     if (report.actionsPerformed.length > 0 && alertCallback) {
       const orphanKills = report.actionsPerformed.filter(a => a.startsWith('Killed orphan'));
       if (orphanKills.length > 0) {
-        const msg = [
-          `🧹 Cleaned up ${orphanKills.length} orphaned Instar process(es):`,
-          ...orphanKills.map(k => `  - ${k}`),
-          `Freed ~${report.orphanMemoryMB}MB`,
-        ].join('\n');
+        const processWord = orphanKills.length === 1 ? 'process' : 'processes';
+        const msg = `Cleaned up ${orphanKills.length} orphaned ${processWord} that were left over from previous agent sessions, freeing ~${report.orphanMemoryMB}MB of memory. No action needed — this is automatic maintenance.`;
         try {
           await alertCallback(msg);
         } catch (err) {

@@ -28,6 +28,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { DispatchManager, Dispatch } from './DispatchManager.js';
 import type { DispatchExecutor, ExecutionResult } from './DispatchExecutor.js';
+import type { DispatchScopeEnforcer } from './DispatchScopeEnforcer.js';
+import type { AutonomyProfileManager } from './AutonomyProfileManager.js';
 import type { TelegramAdapter } from '../messaging/TelegramAdapter.js';
 import type { StateManager } from './StateManager.js';
 
@@ -60,6 +62,10 @@ export class AutoDispatcher {
   private config: Required<AutoDispatcherConfig>;
   private interval: ReturnType<typeof setInterval> | null = null;
   private stateFile: string;
+
+  // Scope enforcement
+  private scopeEnforcer: DispatchScopeEnforcer | null = null;
+  private autonomyManager: AutonomyProfileManager | null = null;
 
   // Persisted state
   private lastPoll: string | null = null;
@@ -143,6 +149,15 @@ export class AutoDispatcher {
    */
   setTelegram(telegram: TelegramAdapter): void {
     this.telegram = telegram;
+  }
+
+  /**
+   * Wire the DispatchScopeEnforcer and AutonomyProfileManager.
+   * When set, dispatch execution is gated by scope tier and autonomy profile.
+   */
+  setScopeEnforcer(enforcer: DispatchScopeEnforcer, manager: AutonomyProfileManager): void {
+    this.scopeEnforcer = enforcer;
+    this.autonomyManager = manager;
   }
 
   /**
@@ -237,6 +252,24 @@ export class AutoDispatcher {
   private async executeDispatch(dispatch: Dispatch): Promise<void> {
     console.log(`[AutoDispatcher] Executing dispatch: ${dispatch.title} (${dispatch.type})`);
 
+    // Check scope enforcement before executing
+    if (this.scopeEnforcer && this.autonomyManager) {
+      const profile = this.autonomyManager.getResolvedState().profile;
+      const scopeCheck = this.scopeEnforcer.checkScope(dispatch, profile);
+
+      if (!scopeCheck.allowed) {
+        console.log(`[AutoDispatcher] Dispatch blocked by scope enforcer: ${scopeCheck.reason}`);
+        if (scopeCheck.requiresApproval) {
+          this.dispatches.markPendingApproval(dispatch.dispatchId);
+          await this.notify(
+            `Dispatch "${dispatch.title}" (${dispatch.type}) requires approval — ` +
+            `${scopeCheck.reason}. ID: ${dispatch.dispatchId}`
+          );
+        }
+        return;
+      }
+    }
+
     // Try to parse as structured action
     const action = this.executor.parseAction(dispatch.content);
 
@@ -250,6 +283,23 @@ export class AutoDispatcher {
       const result = await this.executor.execute(agenticAction);
       await this.recordResult(dispatch, result);
       return;
+    }
+
+    // Validate step scope if scope enforcer is available
+    if (this.scopeEnforcer && this.autonomyManager) {
+      const profile = this.autonomyManager.getResolvedState().profile;
+      const tier = this.scopeEnforcer.getScopeTier(dispatch.type);
+      const stepValidation = this.scopeEnforcer.validateSteps(action.steps, tier);
+
+      if (!stepValidation.valid) {
+        console.log(`[AutoDispatcher] Dispatch steps violate scope: ${stepValidation.violations.join('; ')}`);
+        this.dispatches.markPendingApproval(dispatch.dispatchId);
+        await this.notify(
+          `Dispatch "${dispatch.title}" has steps that violate its ${tier} scope: ` +
+          `${stepValidation.violations[0]}. Queued for approval. ID: ${dispatch.dispatchId}`
+        );
+        return;
+      }
     }
 
     // Execute structured action

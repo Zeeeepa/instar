@@ -668,6 +668,76 @@ intentCmd
     return intentDrift(opts);
   });
 
+// ── Reflect (Living Skills) ──────────────────────────────────────
+
+const reflectCmd = program
+  .command('reflect')
+  .description('Living Skills — view execution journal and patterns for jobs');
+
+reflectCmd
+  .command('job <slug>')
+  .description('Show execution journal for a specific job')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--days <days>', 'Number of days to show (default: 30)', (v: string) => parseInt(v, 10))
+  .option('--limit <count>', 'Max records to show (default: 10)', (v: string) => parseInt(v, 10))
+  .option('--agent <id>', 'Agent ID (default: "default")')
+  .action(async (slug: string, opts: Record<string, unknown>) => {
+    const { reflectJob } = await import('./commands/reflect.js');
+    return reflectJob(slug, opts as Parameters<typeof reflectJob>[1]);
+  });
+
+reflectCmd
+  .command('all')
+  .description('Show execution journal summary for all jobs')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--days <days>', 'Number of days to show (default: 30)', (v: string) => parseInt(v, 10))
+  .option('--agent <id>', 'Agent ID (default: "default")')
+  .action(async (opts: Record<string, unknown>) => {
+    const { reflectAll } = await import('./commands/reflect.js');
+    return reflectAll(opts as Parameters<typeof reflectAll>[0]);
+  });
+
+reflectCmd
+  .command('analyze [slug]')
+  .description('Detect patterns across execution history')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--days <days>', 'Number of days to analyze (default: 30)', (v: string) => parseInt(v, 10))
+  .option('--agent <id>', 'Agent ID (default: "default")')
+  .option('--all', 'Analyze all jobs')
+  .option('--proposals', 'Show evolution proposals for detected patterns')
+  .option('--min-runs <count>', 'Minimum runs for pattern detection (default: 3)', (v: string) => parseInt(v, 10))
+  .action(async (slug: string | undefined, opts: Record<string, unknown>) => {
+    const { analyzePatterns } = await import('./commands/reflect.js');
+    return analyzePatterns(slug, opts as Parameters<typeof analyzePatterns>[1]);
+  });
+
+reflectCmd
+  .command('consolidate')
+  .description('Run full reflection cycle — analyze patterns, create proposals, record learnings')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--days <days>', 'Number of days to analyze (default: 7)', (v: string) => parseInt(v, 10))
+  .option('--agent <id>', 'Agent ID (default: "default")')
+  .option('--min-runs <count>', 'Minimum runs for pattern detection (default: 3)', (v: string) => parseInt(v, 10))
+  .option('--dry-run', 'Show what would be proposed without writing to EvolutionManager')
+  .action(async (opts: Record<string, unknown>) => {
+    const { consolidateReflection } = await import('./commands/reflect.js');
+    return consolidateReflection(opts as Parameters<typeof consolidateReflection>[0]);
+  });
+
+reflectCmd
+  .command('run [slug]')
+  .description('Run LLM-powered per-job reflection (requires Claude CLI or ANTHROPIC_API_KEY)')
+  .option('-d, --dir <path>', 'Project directory')
+  .option('--days <days>', 'Number of days of history to include (default: 30)', (v: string) => parseInt(v, 10))
+  .option('--agent <id>', 'Agent ID (default: "default")')
+  .option('--session <id>', 'Specific session ID to reflect on')
+  .option('--model <tier>', 'Model tier: fast, balanced, capable (default: capable)')
+  .option('--all', 'Reflect on all jobs')
+  .action(async (slug: string | undefined, opts: Record<string, unknown>) => {
+    const { runReflection } = await import('./commands/reflect.js');
+    return runReflection(slug, opts as Parameters<typeof runReflection>[1]);
+  });
+
 // ── Feedback ─────────────────────────────────────────────────────
 
 program

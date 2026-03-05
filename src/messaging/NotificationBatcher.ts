@@ -233,37 +233,29 @@ export class NotificationBatcher {
     return this.config.enabled;
   }
 
-  formatDigest(tierLabel: string, items: QueuedNotification[]): string {
+  formatDigest(_tierLabel: string, items: QueuedNotification[]): string {
     const lines: string[] = [];
-    lines.push(`--- ${tierLabel} (${items.length} item${items.length === 1 ? '' : 's'}) ---`);
-    lines.push('');
 
-    // Group by category
-    const byCategory = new Map<string, QueuedNotification[]>();
-    for (const item of items) {
-      const existing = byCategory.get(item.category) || [];
-      existing.push(item);
-      byCategory.set(item.category, existing);
-    }
-
-    const sortedCategories = [...byCategory.entries()].sort(
-      (a, b) => a[1][0].timestamp.getTime() - b[1][0].timestamp.getTime()
+    // Sort all items by timestamp
+    const sortedItems = [...items].sort(
+      (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
     );
 
-    for (const [category, categoryItems] of sortedCategories) {
-      const header = CATEGORY_HEADERS[category] || category.toUpperCase().replace(/-/g, ' ');
-      lines.push(`${header}:`);
+    for (let i = 0; i < sortedItems.length; i++) {
+      const item = sortedItems[i];
+      const cleanMessage = item.message.replace(/<[^>]+>/g, '').trim();
+      const suffix = item.count > 1 ? ` (×${item.count})` : '';
 
-      categoryItems.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-
-      for (const item of categoryItems) {
-        const cleanMessage = item.message.replace(/<[^>]+>/g, '').trim();
-        const firstLine = cleanMessage.split('\n').find(l => l.trim().length > 0) || cleanMessage;
-        const suffix = item.count > 1 ? ` (×${item.count})` : '';
-        lines.push(`  - ${firstLine.slice(0, 115)}${suffix}`);
+      if (suffix) {
+        lines.push(`${cleanMessage}${suffix}`);
+      } else {
+        lines.push(cleanMessage);
       }
 
-      lines.push('');
+      // Add separator between items
+      if (i < sortedItems.length - 1) {
+        lines.push('');
+      }
     }
 
     return lines.join('\n').trimEnd();

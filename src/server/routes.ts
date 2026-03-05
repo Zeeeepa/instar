@@ -46,6 +46,10 @@ import type { ExternalOperationGate } from '../core/ExternalOperationGate.js';
 import type { OperationMutability, OperationReversibility } from '../core/ExternalOperationGate.js';
 import type { MessageSentinel } from '../core/MessageSentinel.js';
 import type { AdaptiveTrust } from '../core/AdaptiveTrust.js';
+import type { AutonomyProfileManager } from '../core/AutonomyProfileManager.js';
+import type { TrustElevationTracker } from '../core/TrustElevationTracker.js';
+import type { AutonomousEvolution } from '../core/AutonomousEvolution.js';
+import type { AutonomyProfileLevel } from '../core/types.js';
 import type { MemoryPressureMonitor } from '../monitoring/MemoryPressureMonitor.js';
 import type { CoherenceMonitor } from '../monitoring/CoherenceMonitor.js';
 import type { SystemReviewer } from '../monitoring/SystemReviewer.js';
@@ -58,6 +62,7 @@ import type { SessionSummarySentinel } from '../messaging/SessionSummarySentinel
 import type { SpawnRequestManager } from '../messaging/SpawnRequestManager.js';
 import { getOutboundQueueStatus, cleanupDeliveredOutbound, buildAgentList } from '../messaging/GitSyncTransport.js';
 import type { CapabilityMapper } from '../core/CapabilityMapper.js';
+import type { TopicResumeMap } from '../core/TopicResumeMap.js';
 import type { MessageType, MessagePriority, MessageFilter } from '../messaging/types.js';
 import { verifyAgentToken } from '../messaging/AgentTokenManager.js';
 import type { WorkingMemoryAssembler } from '../memory/WorkingMemoryAssembler.js';
@@ -106,6 +111,10 @@ export interface RouteContext {
   quotaManager: QuotaManager | null;
   systemReviewer: SystemReviewer | null;
   capabilityMapper: CapabilityMapper | null;
+  topicResumeMap: TopicResumeMap | null;
+  autonomyManager: AutonomyProfileManager | null;
+  trustElevationTracker: TrustElevationTracker | null;
+  autonomousEvolution: AutonomousEvolution | null;
   startTime: Date;
 }
 
@@ -137,6 +146,7 @@ export function createRoutes(ctx: RouteContext): Router {
         jobs: '/jobs',
         evolution: '/evolution',
         context: '/context',
+        autonomy: '/autonomy',
       },
     });
   });
@@ -1053,6 +1063,17 @@ export function createRoutes(ctx: RouteContext): Router {
         enabled: !!ctx.evolution,
         subsystems: ['proposals', 'learnings', 'gaps', 'actions'],
       },
+      autonomy: ctx.autonomyManager ? {
+        enabled: true,
+        profile: ctx.autonomyManager.getProfile(),
+        endpoints: [
+          'GET /autonomy — full dashboard with profile, resolved state, summary, elevations',
+          'GET /autonomy/summary — natural language summary',
+          'POST /autonomy/profile { profile, reason } — set profile level',
+          'PATCH /autonomy/notifications — update notification preferences',
+          'GET /autonomy/history — profile change history',
+        ],
+      } : { enabled: false },
       git: (() => {
         const projectDir = ctx.config.projectDir;
         const hasGitRepo = fs.existsSync(path.join(projectDir, '.git'));
@@ -1215,6 +1236,10 @@ export function createRoutes(ctx: RouteContext): Router {
           { context: 'About to call an external service API (email, calendar, messaging)', action: 'Evaluate through operation gate FIRST (POST /operations/evaluate). The gate classifies risk and decides proceed/plan/block.' },
           { context: 'User says to stop, cancel, or abort', action: 'MessageSentinel intercepts these automatically. For manual classification: POST /sentinel/classify.' },
           { context: 'User says "you don\'t need to ask me about X"', action: 'Grant trust explicitly (POST /trust/grant). Trust persists across sessions.' },
+          { context: 'User asks about autonomy, trust level, approval settings, or how much freedom the agent has', action: 'Show autonomy summary (GET /autonomy/summary). Present in natural language — never show CLI commands.' },
+          { context: 'User says "go autonomous", "handle everything yourself", "I trust you", or wants less friction', action: 'Set autonomy profile (POST /autonomy/profile { profile: "autonomous", reason: "..." }). Confirm the implications conversationally first.' },
+          { context: 'User says "supervise everything", "ask me first", "I want to approve", or wants more control', action: 'Set autonomy profile (POST /autonomy/profile { profile: "cautious" or "supervised", reason: "..." }).' },
+          { context: 'User wants to undo an evolution change or revert agent self-modification', action: 'Check evolution proposals (GET /evolution/proposals?status=implemented), then PATCH the proposal status back. Explain what happened and what was reverted.' },
           { context: 'User asks to adjust memory warning thresholds or stop memory alerts', action: 'Update thresholds (PATCH /monitoring/memory/thresholds with {warning, elevated, critical}). Check current state (GET /monitoring/memory).' },
           { context: 'User asks about Instar features, architecture, multi-user, or multi-machine setup', action: 'STOP — do NOT answer from memory. Run GET /capabilities first, then check `instar --help` for CLI commands, then GET /context/dispatch for the full context map. Answer ONLY from what these return.' },
           { context: 'User says to update, install latest version, or apply updates', action: 'Run POST /updates/apply immediately. Do NOT explain how to update — just do it. If you want to enable auto-updates, set updates.autoApply to true in .instar/config.json.' },
@@ -3220,7 +3245,35 @@ export function createRoutes(ctx: RouteContext): Router {
         } catch { /* fall through to default */ }
         console.log(`[telegram-forward] No live session for topic ${topicId}, spawning "${topicName}"...`);
 
+        // Fetch thread history so auto-spawned sessions have full conversational context
+        const historyLines: string[] = [];
+        if (ctx.telegram) {
+          try {
+            const history = ctx.telegram.getTopicHistory(topicId, 20);
+            if (history.length > 0) {
+              historyLines.push(`--- Thread History (last ${history.length} messages) ---`);
+              historyLines.push(`IMPORTANT: Read this history carefully before taking any action.`);
+              historyLines.push(`Your task is to continue THIS conversation, not start something new.`);
+              historyLines.push(``);
+              for (const m of history) {
+                const sender = m.fromUser
+                  ? (m.senderName || 'User')
+                  : 'Agent';
+                const ts = m.timestamp ? new Date(m.timestamp).toISOString().slice(11, 19) : '??:??';
+                const histText = (m.text || '').slice(0, 300);
+                historyLines.push(`[${ts}] ${sender}: ${histText}`);
+              }
+              historyLines.push(``);
+              historyLines.push(`--- End Thread History ---`);
+            }
+          } catch (err) {
+            console.error(`[telegram-forward] Failed to fetch thread history for topic ${topicId}:`, err);
+          }
+        }
+
         const contextLines = [
+          ...historyLines,
+          ``,
           `This session was auto-created for Telegram topic ${topicId}.`,
           ``,
           `CRITICAL: You MUST relay your response back to Telegram after responding.`,
@@ -3238,9 +3291,19 @@ export function createRoutes(ctx: RouteContext): Router {
         const ctxPath = path.join(tmpDir, `ctx-${topicId}-${Date.now()}.txt`);
         fs.writeFileSync(ctxPath, contextLines.join('\n'));
 
-        const bootstrapMessage = `[telegram:${topicId}] ${text} (IMPORTANT: Read ${ctxPath} for Telegram relay instructions — you MUST relay your response back.)`;
+        const bootstrapMessage = `[telegram:${topicId}] ${text} (IMPORTANT: Read ${ctxPath} for thread history and Telegram relay instructions — you MUST relay your response back.)`;
 
-        ctx.sessionManager.spawnInteractiveSession(bootstrapMessage, topicName, { telegramTopicId: topicId }).then((newSessionName) => {
+        // Check for a resume UUID from a previously-killed session
+        const resumeSessionId = ctx.topicResumeMap?.get(topicId) ?? undefined;
+        if (resumeSessionId) {
+          console.log(`[telegram-forward] Found resume UUID for topic ${topicId}: ${resumeSessionId}`);
+        }
+
+        ctx.sessionManager.spawnInteractiveSession(bootstrapMessage, topicName, { telegramTopicId: topicId, resumeSessionId }).then((newSessionName) => {
+          // Clear resume entry after successful spawn
+          if (resumeSessionId) {
+            ctx.topicResumeMap?.remove(topicId);
+          }
           // Update registry on disk
           try {
             const reg = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf-8')) : { topicToSession: {}, topicToName: {} };
@@ -4147,6 +4210,238 @@ export function createRoutes(ctx: RouteContext): Router {
       return res.status(404).json({ error: 'AdaptiveTrust not configured' });
     }
     res.json(ctx.adaptiveTrust.getChangeLog());
+  });
+
+  // ── Adaptive Autonomy ────────────────────────────────────────────
+
+  // GET /autonomy — full autonomy dashboard
+  router.get('/autonomy', (_req, res) => {
+    if (!ctx.autonomyManager) {
+      return res.status(404).json({ error: 'Autonomy system not configured' });
+    }
+    res.json(ctx.autonomyManager.getDashboard());
+  });
+
+  // GET /autonomy/summary — natural language summary for conversational use
+  router.get('/autonomy/summary', (_req, res) => {
+    if (!ctx.autonomyManager) {
+      return res.status(404).json({ error: 'Autonomy system not configured' });
+    }
+    res.json({ summary: ctx.autonomyManager.getNaturalLanguageSummary() });
+  });
+
+  // POST /autonomy/profile — set the autonomy profile
+  // Body: { profile: "cautious" | "supervised" | "collaborative" | "autonomous", reason: string }
+  router.post('/autonomy/profile', (req, res) => {
+    if (!ctx.autonomyManager) {
+      return res.status(404).json({ error: 'Autonomy system not configured' });
+    }
+    const { profile, reason } = req.body;
+    const validProfiles: AutonomyProfileLevel[] = ['cautious', 'supervised', 'collaborative', 'autonomous'];
+    if (!profile || !validProfiles.includes(profile)) {
+      return res.status(400).json({
+        error: `Invalid profile. Must be one of: ${validProfiles.join(', ')}`,
+      });
+    }
+    const resolved = ctx.autonomyManager.setProfile(profile, reason || 'User request');
+    res.json({
+      profile,
+      resolved,
+      summary: ctx.autonomyManager.getNaturalLanguageSummary(),
+    });
+  });
+
+  // PATCH /autonomy/notifications — update notification preferences
+  router.patch('/autonomy/notifications', (req, res) => {
+    if (!ctx.autonomyManager) {
+      return res.status(404).json({ error: 'Autonomy system not configured' });
+    }
+    ctx.autonomyManager.setNotificationPreferences(req.body);
+    res.json({ notifications: ctx.autonomyManager.getNotificationPreferences() });
+  });
+
+  // GET /autonomy/history — profile change history
+  router.get('/autonomy/history', (_req, res) => {
+    if (!ctx.autonomyManager) {
+      return res.status(404).json({ error: 'Autonomy system not configured' });
+    }
+    res.json({ history: ctx.autonomyManager.getHistory() });
+  });
+
+  // ── Trust Elevation Tracking ─────────────────────────────────────
+
+  // GET /autonomy/elevation — full trust elevation dashboard
+  router.get('/autonomy/elevation', (_req, res) => {
+    if (!ctx.trustElevationTracker) {
+      return res.status(404).json({ error: 'Trust elevation tracking not configured' });
+    }
+    res.json(ctx.trustElevationTracker.getDashboard());
+  });
+
+  // GET /autonomy/elevation/opportunities — active elevation opportunities
+  router.get('/autonomy/elevation/opportunities', (_req, res) => {
+    if (!ctx.trustElevationTracker) {
+      return res.status(404).json({ error: 'Trust elevation tracking not configured' });
+    }
+    res.json({ opportunities: ctx.trustElevationTracker.getActiveOpportunities() });
+  });
+
+  // POST /autonomy/elevation/record — record a proposal decision for tracking
+  // Body: { proposalId, proposedAt, decision, modified? }
+  router.post('/autonomy/elevation/record', (req, res) => {
+    if (!ctx.trustElevationTracker) {
+      return res.status(404).json({ error: 'Trust elevation tracking not configured' });
+    }
+    const { proposalId, proposedAt, decision, modified } = req.body;
+    if (!proposalId || !proposedAt || !decision) {
+      return res.status(400).json({ error: 'Required: proposalId, proposedAt, decision' });
+    }
+    const validDecisions = ['approved', 'rejected', 'deferred'];
+    if (!validDecisions.includes(decision)) {
+      return res.status(400).json({ error: `Invalid decision. Must be one of: ${validDecisions.join(', ')}` });
+    }
+
+    const now = new Date();
+    const latencyMs = now.getTime() - new Date(proposedAt).getTime();
+
+    ctx.trustElevationTracker.recordApprovalEvent({
+      proposalId,
+      proposedAt,
+      decidedAt: now.toISOString(),
+      decision,
+      modified: modified ?? false,
+      latencyMs,
+    });
+
+    res.json({
+      recorded: true,
+      acceptanceStats: ctx.trustElevationTracker.getAcceptanceStats(),
+      rubberStamp: ctx.trustElevationTracker.getRubberStampSignal(),
+    });
+  });
+
+  // POST /autonomy/elevation/dismiss — dismiss an elevation opportunity
+  // Body: { type, days? }
+  router.post('/autonomy/elevation/dismiss', (req, res) => {
+    if (!ctx.trustElevationTracker) {
+      return res.status(404).json({ error: 'Trust elevation tracking not configured' });
+    }
+    const { type, days } = req.body;
+    if (!type) {
+      return res.status(400).json({ error: 'Required: type' });
+    }
+    const success = ctx.trustElevationTracker.dismissOpportunity(type, days ?? 30);
+    res.json({ dismissed: success });
+  });
+
+  // POST /autonomy/elevation/dismiss-rubber-stamp — dismiss rubber-stamp alert
+  // Body: { days? }
+  router.post('/autonomy/elevation/dismiss-rubber-stamp', (req, res) => {
+    if (!ctx.trustElevationTracker) {
+      return res.status(404).json({ error: 'Trust elevation tracking not configured' });
+    }
+    ctx.trustElevationTracker.dismissRubberStamp(req.body.days ?? 60);
+    res.json({ dismissed: true, rubberStamp: ctx.trustElevationTracker.getRubberStampSignal() });
+  });
+
+  // GET /autonomy/elevation/acceptance — evolution acceptance stats
+  router.get('/autonomy/elevation/acceptance', (_req, res) => {
+    if (!ctx.trustElevationTracker) {
+      return res.status(404).json({ error: 'Trust elevation tracking not configured' });
+    }
+    res.json(ctx.trustElevationTracker.getAcceptanceStats());
+  });
+
+  // ── Autonomous Evolution ────────────────────────────────────────────
+
+  // GET /autonomy/evolution — autonomous evolution dashboard
+  router.get('/autonomy/evolution', (_req, res) => {
+    if (!ctx.autonomousEvolution) {
+      return res.status(404).json({ error: 'Autonomous evolution not configured' });
+    }
+    res.json(ctx.autonomousEvolution.getDashboard());
+  });
+
+  // POST /autonomy/evolution/evaluate — evaluate a proposal for auto-implementation
+  // Body: { proposalId, title, source, review: { decision, reason, affectedFields, confidence } }
+  router.post('/autonomy/evolution/evaluate', (req, res) => {
+    if (!ctx.autonomousEvolution) {
+      return res.status(404).json({ error: 'Autonomous evolution not configured' });
+    }
+    const { review } = req.body;
+    if (!review || !review.decision || !review.affectedFields) {
+      return res.status(400).json({ error: 'Required: review.decision, review.affectedFields' });
+    }
+
+    const autonomousMode = ctx.autonomyManager?.getResolvedState().evolutionApprovalMode === 'autonomous';
+    const result = ctx.autonomousEvolution.evaluateForAutoImplementation(review, autonomousMode);
+    res.json({
+      ...result,
+      scope: ctx.autonomousEvolution.classifyScope(review.affectedFields),
+      autonomousMode,
+    });
+  });
+
+  // POST /autonomy/evolution/sidecar — create a sidecar file for proposed job changes
+  // Body: { jobSlug, proposalId, changes }
+  router.post('/autonomy/evolution/sidecar', (req, res) => {
+    if (!ctx.autonomousEvolution) {
+      return res.status(404).json({ error: 'Autonomous evolution not configured' });
+    }
+    const { jobSlug, proposalId, changes } = req.body;
+    if (!jobSlug || !proposalId || !changes) {
+      return res.status(400).json({ error: 'Required: jobSlug, proposalId, changes' });
+    }
+    const sidecar = ctx.autonomousEvolution.createSidecar(jobSlug, proposalId, changes);
+    res.json({ created: true, sidecar });
+  });
+
+  // POST /autonomy/evolution/sidecar/apply — apply a pending sidecar
+  // Body: { proposalId }
+  router.post('/autonomy/evolution/sidecar/apply', (req, res) => {
+    if (!ctx.autonomousEvolution) {
+      return res.status(404).json({ error: 'Autonomous evolution not configured' });
+    }
+    const { proposalId } = req.body;
+    if (!proposalId) {
+      return res.status(400).json({ error: 'Required: proposalId' });
+    }
+    const success = ctx.autonomousEvolution.applySidecar(proposalId);
+    res.json({ applied: success });
+  });
+
+  // POST /autonomy/evolution/revert — revert an applied sidecar
+  // Body: { proposalId }
+  router.post('/autonomy/evolution/revert', (req, res) => {
+    if (!ctx.autonomousEvolution) {
+      return res.status(404).json({ error: 'Autonomous evolution not configured' });
+    }
+    const { proposalId } = req.body;
+    if (!proposalId) {
+      return res.status(400).json({ error: 'Required: proposalId' });
+    }
+    const success = ctx.autonomousEvolution.revertSidecar(proposalId);
+    res.json({ reverted: success });
+  });
+
+  // GET /autonomy/evolution/notifications — peek at notification queue
+  router.get('/autonomy/evolution/notifications', (_req, res) => {
+    if (!ctx.autonomousEvolution) {
+      return res.status(404).json({ error: 'Autonomous evolution not configured' });
+    }
+    res.json({
+      pending: ctx.autonomousEvolution.peekNotifications(),
+      recentHistory: ctx.autonomousEvolution.getNotificationHistory(20),
+    });
+  });
+
+  // POST /autonomy/evolution/notifications/drain — drain the notification queue
+  router.post('/autonomy/evolution/notifications/drain', (_req, res) => {
+    if (!ctx.autonomousEvolution) {
+      return res.status(404).json({ error: 'Autonomous evolution not configured' });
+    }
+    const drained = ctx.autonomousEvolution.drainNotifications();
+    res.json({ drained: drained.length, notifications: drained });
   });
 
   // ── Memory Monitoring ──────────────────────────────────────────────

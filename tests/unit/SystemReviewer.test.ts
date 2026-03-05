@@ -1136,8 +1136,10 @@ describe('SystemReviewer', () => {
     await rev.review();
 
     expect(sendAlert).toHaveBeenCalledOnce();
-    expect(sendAlert.mock.calls[0][1]).toContain('CRITICAL');
-    expect(sendAlert.mock.calls[0][1]).toContain('test.crit');
+    const alertText = sendAlert.mock.calls[0][1];
+    // Narrative format: probe name, error cause, remediation
+    expect(alertText).toContain('test.crit');
+    expect(alertText).toContain('Expected 42, got 0');
     rev.stop();
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -1154,7 +1156,10 @@ describe('SystemReviewer', () => {
     await rev.review();
 
     expect(sendAlert).toHaveBeenCalledOnce();
-    expect(sendAlert.mock.calls[0][1]).toContain('HIGH');
+    const alertText = sendAlert.mock.calls[0][1];
+    // Narrative format: probe name and error cause
+    expect(alertText).toContain('test.high');
+    expect(alertText).toContain('Expected 42, got 0');
     rev.stop();
     fs.rmSync(dir, { recursive: true, force: true });
   });

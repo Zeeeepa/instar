@@ -87,6 +87,8 @@ export interface JobDefinition {
   grounding?: JobGrounding;
   /** LLM supervision tier — see docs/LLM-SUPERVISED-EXECUTION.md */
   supervision?: SupervisionTier;
+  /** Living Skills — opt-in execution journaling and pattern detection (PROP-229) */
+  livingSkills?: LivingSkillsConfig;
 }
 
 export interface JobGrounding {
@@ -750,6 +752,99 @@ export interface EvolutionManagerConfig {
   maxActions?: number;
 }
 
+// ── Living Skills (PROP-229) ─────────────────────────────────────────
+
+/**
+ * Configuration for Living Skills on a job.
+ * Opt-in only — no journaling occurs unless explicitly enabled.
+ */
+export interface LivingSkillsConfig {
+  /** Whether execution journaling is enabled for this job */
+  enabled: boolean;
+  /** Named steps the job definition says should be executed */
+  definedSteps?: Array<string | DefinedStepConfig>;
+  /** Run per-job LLM reflection after each run. Default: true (set false to disable) */
+  perJobReflection?: boolean;
+  /** Model for per-job reflection. Default: opus */
+  reflectionModel?: ModelTier | null;
+  /** Frequency threshold for pattern proposals (0.0-1.0). Default: 0.6 */
+  patternThreshold?: number;
+}
+
+export interface DefinedStepConfig {
+  step: string;
+  /** If true, this step is protected from omission-detection removal proposals */
+  required?: boolean;
+}
+
+/** A single captured execution step within a job run */
+export interface ExecutionStep {
+  /** Human-readable step identifier (e.g., "check-redis", "deploy-staging") */
+  step: string;
+  /** ISO timestamp when this step was captured */
+  timestamp: string;
+  /** Whether captured by hook (authoritative) or reported by agent (advisory) */
+  source: ExecutionStepSource;
+  /** Optional notes about what happened */
+  notes?: string;
+  /** The raw command that triggered capture (sanitized) */
+  command?: string;
+  /** Whether this step was in the job's definedSteps */
+  inDefinition?: boolean;
+}
+
+export type ExecutionStepSource = 'hook' | 'agent' | 'reconciled';
+
+/** A deviation from the expected job definition */
+export interface ExecutionDeviation {
+  type: 'addition' | 'omission' | 'modification';
+  step: string;
+  reason?: string;
+}
+
+/**
+ * A single execution record in the journal.
+ * One entry per job run, written to JSONL on session finalization.
+ */
+export interface ExecutionRecord {
+  /** Unique execution ID (e.g., "exec-20260304-abc123") */
+  executionId: string;
+  /** Job slug this belongs to */
+  jobSlug: string;
+  /** Session ID that ran this job */
+  sessionId: string;
+  /** Agent identity for multi-agent namespacing */
+  agentId: string;
+  /** ISO timestamp of job start */
+  timestamp: string;
+  /** Steps the job definition says should run */
+  definedSteps: string[];
+  /** Steps actually captured during the run */
+  actualSteps: ExecutionStep[];
+  /** Deviations from defined steps */
+  deviations: ExecutionDeviation[];
+  /** How the job ended */
+  outcome: 'success' | 'failure' | 'timeout' | 'unknown';
+  /** Actual duration in minutes */
+  durationMinutes?: number;
+  /** Whether this record has been finalized */
+  finalized: boolean;
+}
+
+/**
+ * A pending step captured during execution.
+ * Accumulated by the hook in _pending.{sessionId}.jsonl,
+ * then merged into a full ExecutionRecord on finalization.
+ */
+export interface PendingStep {
+  sessionId: string;
+  jobSlug: string;
+  timestamp: string;
+  command: string;
+  source: 'hook';
+  stepLabel?: string;
+}
+
 // ── Decision Journal ────────────────────────────────────────────────
 
 /**
@@ -1111,6 +1206,49 @@ export interface InstarConfig {
   registrationContactHint?: string;
   /** Onboarding configuration — controls what data is collected during user registration */
   onboarding?: OnboardingConfig;
+  /** Adaptive Autonomy — unified autonomy profile that coordinates all subsystems */
+  autonomyProfile?: AutonomyProfileLevel;
+  /** Notification preferences for autonomy events */
+  notifications?: NotificationPreferences;
+}
+
+// ── Adaptive Autonomy (PROP — Unified Self-Evolution Governance) ────
+
+/**
+ * Four named autonomy profiles, each coordinating all subsystems.
+ * Users set this conversationally ("go autonomous", "supervise everything").
+ * The agent handles the config mapping.
+ */
+export type AutonomyProfileLevel = 'cautious' | 'supervised' | 'collaborative' | 'autonomous';
+
+/**
+ * The resolved autonomy state after profile + overrides are applied.
+ * This is what subsystems actually read.
+ */
+export interface ResolvedAutonomyState {
+  /** The base profile */
+  profile: AutonomyProfileLevel;
+  /** Evolution governance mode */
+  evolutionApprovalMode: 'ai-assisted' | 'autonomous';
+  /** Safety level */
+  safetyLevel: 1 | 2;
+  /** Agent autonomy level for operations */
+  agentAutonomyLevel: AgentAutonomyLevel;
+  /** Whether updates auto-apply */
+  autoApplyUpdates: boolean;
+  /** Whether server auto-restarts after updates */
+  autoRestart: boolean;
+  /** Trust auto-elevation enabled */
+  trustAutoElevate: boolean;
+}
+
+export interface NotificationPreferences {
+  /** How evolution notifications are batched */
+  evolutionDigest?: 'immediate' | 'hourly' | 'daily';
+  /** Whether to surface trust elevation suggestions */
+  trustElevationSuggestions?: boolean;
+  /** Whether to notify about post-update migrations */
+  migrationNotifications?: boolean;
 }
 
 /**

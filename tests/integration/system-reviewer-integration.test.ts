@@ -289,7 +289,7 @@ describe('SystemReviewer Integration: Alert Pipeline', () => {
     fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
-  it('alert contains probe ID, tier label, and error info', async () => {
+  it('alert contains probe name, error info, and suggested fix', async () => {
     const sendAlert = vi.fn().mockResolvedValue(undefined);
     const rev = new SystemReviewer(
       { enabled: false, alertOnCritical: true },
@@ -301,10 +301,10 @@ describe('SystemReviewer Integration: Alert Pipeline', () => {
 
     expect(sendAlert).toHaveBeenCalledOnce();
     const alertText = sendAlert.mock.calls[0][1];
-    expect(alertText).toContain('CRITICAL');
-    expect(alertText).toContain('instar.session.list');
-    expect(alertText).toContain('Tier 1');
-    expect(alertText).toContain('instar doctor');
+    // Narrative format: includes probe name, error cause, and remediation
+    expect(alertText).toContain('Failing Probe instar.session.list');
+    expect(alertText).toContain('Expected 42, got 0');
+    expect(alertText).toContain('Fix the thing');
 
     rev.stop();
   });

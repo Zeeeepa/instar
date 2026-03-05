@@ -604,6 +604,10 @@ function findNodePath(): string {
 
 function findInstarCli(): string {
   // Find the actual instar CLI entry point
+  // CRITICAL: Never resolve to an npx cache path. When users run `npx instar setup`,
+  // import.meta.url points to the npx cache. If we bake that path into the launchd
+  // plist, `npm install -g` updates won't reach the running binary (the npx cache
+  // is a separate copy). This caused an infinite update→notify→restart loop (v0.12.12).
   try {
     const globalPath = execFileSync('which', ['instar'], {
       encoding: 'utf-8',
@@ -614,10 +618,31 @@ function findInstarCli(): string {
     }
   } catch { /* not global */ }
 
-  // Fallback: use the dist/cli.js from the npm package
+  // Try resolving from npm's global prefix (works even when `which` fails)
+  try {
+    const prefix = execFileSync('npm', ['prefix', '-g'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    const globalCli = path.join(prefix, 'lib', 'node_modules', 'instar', 'dist', 'cli.js');
+    if (fs.existsSync(globalCli)) {
+      return globalCli;
+    }
+  } catch { /* npm prefix failed */ }
+
+  // Fallback: use the dist/cli.js from the npm package — but ONLY if not in npx cache
   const cliPath = new URL('../cli.js', import.meta.url).pathname;
-  if (fs.existsSync(cliPath)) {
+  if (fs.existsSync(cliPath) && !cliPath.includes('.npm/_npx')) {
     return cliPath;
+  }
+
+  // Last resort: if everything points to npx cache, warn and use bare command name.
+  // The plist will need PATH to resolve it, but at least it won't be pinned to a stale cache.
+  if (cliPath.includes('.npm/_npx')) {
+    console.warn(
+      '[setup] WARNING: Running from npx cache. The launchd plist will use bare "instar" command.\n' +
+      '  For reliable auto-updates, install globally first: npm install -g instar'
+    );
   }
 
   return 'instar';

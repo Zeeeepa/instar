@@ -103,6 +103,9 @@ export class AutoUpdater {
   // Restart cooldown — prevent rapid restart cycling (e.g., binary path mismatch)
   private lastRestartRequestedAt: string | null = null;
   private lastRestartRequestedVersion: string | null = null;
+  // npx cache detection — when true, auto-apply is disabled because npm install -g
+  // updates a different location than the running binary (infinite loop prevention)
+  private isNpxCached = false;
 
   constructor(
     updateChecker: UpdateChecker,
@@ -129,6 +132,22 @@ export class AutoUpdater {
     };
 
     this.gate = new UpdateGate();
+
+    // Detect npx cache: when the running binary is in .npm/_npx/, `npm install -g`
+    // updates a different location. Auto-applying would succeed (global gets updated)
+    // but restart loads from the same stale npx cache → infinite loop.
+    // This was the root cause of the v0.12.12 notification spam on npx-launched agents.
+    try {
+      const runningPath = new URL(import.meta.url).pathname;
+      if (runningPath.includes('.npm/_npx')) {
+        this.isNpxCached = true;
+        console.warn(
+          `[AutoUpdater] WARNING: Running from npx cache (${runningPath}). ` +
+          `Auto-apply disabled — npm install -g updates a different location. ` +
+          `Reinstall globally: npm install -g instar`
+        );
+      }
+    } catch { /* import.meta.url not available — assume not npx */ }
 
     // Load persisted state (survives restarts)
     this.loadState();
@@ -313,6 +332,20 @@ export class AutoUpdater {
       this.pendingUpdate = info.latestVersion;
 
       // Step 2: Auto-apply if configured
+      // Block auto-apply when running from npx cache — npm install -g can't reach us
+      if (this.isNpxCached) {
+        if (!this.coalescingUntil) {
+          await this.notify(
+            `There's a new version available (v${info.latestVersion}), but I'm running from an npx cache ` +
+            `so auto-updates can't take effect. To fix this permanently:\n` +
+            `1. npm install -g instar\n` +
+            `2. Restart the lifeline with the global binary`
+          );
+          this.coalescingUntil = 'notified-npx';
+        }
+        this.saveState();
+        return;
+      }
       if (!this.config.autoApply) {
         this.saveState();
         // Notify with actionable instructions — don't leave the user hanging

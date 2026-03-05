@@ -28,6 +28,9 @@ import type {
   ActionItem,
   EvolutionManagerConfig,
 } from './types.js';
+import type { TrustElevationTracker } from './TrustElevationTracker.js';
+import type { AutonomousEvolution, ReviewResult } from './AutonomousEvolution.js';
+import type { AutonomyProfileManager } from './AutonomyProfileManager.js';
 
 interface EvolutionState {
   proposals: EvolutionProposal[];
@@ -75,10 +78,43 @@ interface ActionState {
 export class EvolutionManager {
   private stateDir: string;
   private config: EvolutionManagerConfig;
+  private trustElevationTracker: TrustElevationTracker | null = null;
+  private autonomousEvolution: AutonomousEvolution | null = null;
+  private autonomyManager: AutonomyProfileManager | null = null;
 
   constructor(config: EvolutionManagerConfig) {
     this.config = config;
     this.stateDir = config.stateDir;
+  }
+
+  /**
+   * Wire adaptive autonomy modules for runtime integration.
+   * - TrustElevationTracker: receives proposal approval/rejection events
+   * - AutonomousEvolution: handles auto-implementation when in autonomous mode
+   * - AutonomyProfileManager: provides current autonomy profile state
+   */
+  setAdaptiveAutonomyModules(modules: {
+    trustElevationTracker?: TrustElevationTracker | null;
+    autonomousEvolution?: AutonomousEvolution | null;
+    autonomyManager?: AutonomyProfileManager | null;
+  }): void {
+    this.trustElevationTracker = modules.trustElevationTracker ?? null;
+    this.autonomousEvolution = modules.autonomousEvolution ?? null;
+    this.autonomyManager = modules.autonomyManager ?? null;
+  }
+
+  /**
+   * Get the wired TrustElevationTracker (for external access, e.g. routes).
+   */
+  getTrustElevationTracker(): TrustElevationTracker | null {
+    return this.trustElevationTracker;
+  }
+
+  /**
+   * Get the wired AutonomousEvolution module (for external access, e.g. routes).
+   */
+  getAutonomousEvolution(): AutonomousEvolution | null {
+    return this.autonomousEvolution;
   }
 
   // ── File I/O ────────────────────────────────────────────────────
@@ -198,7 +234,57 @@ export class EvolutionManager {
     if (resolution) proposal.resolution = resolution;
     if (status === 'implemented') proposal.implementedAt = this.now();
     this.saveEvolution(state);
+
+    // Feed decision to TrustElevationTracker for acceptance rate tracking
+    if (this.trustElevationTracker && (status === 'approved' || status === 'rejected')) {
+      const decision = status === 'approved' ? 'approved' : 'rejected';
+      this.trustElevationTracker.recordProposalDecision(proposal, decision, false);
+    }
+
     return true;
+  }
+
+  /**
+   * Process a proposal through the autonomous evolution pipeline.
+   * If in autonomous mode and the review approves with safe scope,
+   * the proposal is auto-implemented via sidecar pattern.
+   *
+   * Returns the action taken, or null if autonomous modules aren't wired.
+   */
+  processProposalAutonomously(
+    proposalId: string,
+    review: ReviewResult,
+  ): { action: string; reason: string } | null {
+    if (!this.autonomousEvolution || !this.autonomyManager) return null;
+
+    const resolved = this.autonomyManager.getResolvedState();
+    const isAutonomous = resolved.evolutionApprovalMode === 'autonomous';
+
+    const evaluation = this.autonomousEvolution.evaluateForAutoImplementation(review, isAutonomous);
+
+    const state = this.loadEvolution();
+    const proposal = state.proposals.find(p => p.id === proposalId);
+    if (!proposal) return null;
+
+    switch (evaluation.action) {
+      case 'auto-implement':
+        // Auto-approve and create notification
+        this.updateProposalStatus(proposalId, 'approved', evaluation.reason);
+        this.autonomousEvolution.createNotification(proposal, 'auto-implemented', review, evaluation.reason);
+        break;
+      case 'reject':
+        this.updateProposalStatus(proposalId, 'rejected', evaluation.reason);
+        this.autonomousEvolution.createNotification(proposal, 'rejected', review, evaluation.reason);
+        break;
+      case 'needs-review':
+        this.autonomousEvolution.createNotification(proposal, 'needs-review', review, evaluation.reason);
+        break;
+      case 'queue-for-approval':
+        // Stays as proposed — human will approve via API
+        break;
+    }
+
+    return { action: evaluation.action, reason: evaluation.reason };
   }
 
   listProposals(filter?: { status?: EvolutionStatus; type?: EvolutionType }): EvolutionProposal[] {

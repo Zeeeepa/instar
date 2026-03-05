@@ -183,6 +183,40 @@ export interface SystemReviewerDeps {
   redactSecrets?: (text: string) => string;
 }
 
+/**
+ * Translate doctor probe failures into human-readable, actionable messages.
+ */
+function formatDoctorAlert(result: ProbeResult): string {
+  const error = result.error ?? 'unknown error';
+  const remediations = result.remediation;
+
+  // Map probe names to friendly descriptions
+  const friendlyDescriptions: Record<string, (error: string) => string> = {
+    'Lifeline Supervisor': (err) =>
+      `Your agent's automatic restart system (lifeline) has stopped working. If your agent crashes, it won't restart on its own.\n\nCause: ${err}\nReply "fix lifeline" to restart it.`,
+    'Lifeline Process': (err) =>
+      `Your agent's crash-recovery process isn't running. If your agent stops unexpectedly, it won't come back automatically.\n\nCause: ${err}\nReply "fix lifeline" to restart it.`,
+    'Session Health': (err) =>
+      `One or more of your agent's sessions may be stuck or unresponsive.\n\nCause: ${err}\nReply "restart sessions" to check and fix them.`,
+    'Scheduler': (err) =>
+      `Your agent's job scheduler isn't working properly, so scheduled tasks may not run.\n\nCause: ${err}\nReply "fix scheduler" to investigate.`,
+    'Telegram Messaging': (err) =>
+      `Your agent's Telegram connection has an issue. Messages may not be sending or receiving correctly.\n\nCause: ${err}\nReply "fix telegram" to reconnect.`,
+  };
+
+  const formatter = friendlyDescriptions[result.name];
+  if (formatter) {
+    return formatter(error);
+  }
+
+  // Fallback for unknown probes — still narrative
+  let msg = `Your agent's "${result.name}" check failed.\n\nCause: ${error}`;
+  if (remediations && remediations.length > 0) {
+    msg += `\n\nSuggested fix: ${remediations[0]}`;
+  }
+  return msg;
+}
+
 // ── Implementation ────────────────────────────────────────────────
 
 export class SystemReviewer extends EventEmitter {
@@ -858,12 +892,8 @@ export class SystemReviewer extends EventEmitter {
       for (const result of alertable) {
         if (this.isAlertCoolingDown(result.probeId)) continue;
 
-        const tierLabel = result.tier === 1 ? 'CRITICAL' : 'HIGH';
-        // Only send summary — NOT full diagnostic data
-        const alertText = `[DOCTOR] ${tierLabel}: ${result.name} failed\n` +
-          `Probe: ${result.probeId} (Tier ${result.tier})\n` +
-          `Error: ${result.error ?? 'unknown'}\n` +
-          `Run \`instar doctor --probe ${result.probeId}\` for full diagnostics.`;
+        // Format as a narrative, actionable message
+        const alertText = formatDoctorAlert(result);
 
         try {
           await this.deps.sendAlert(undefined, alertText);

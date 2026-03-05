@@ -257,9 +257,22 @@ export class ServerSupervisor extends EventEmitter {
     if (!this.tmuxPath) return false;
 
     try {
-      // Get the instar CLI path — resolves from the lifeline's installed location,
-      // which is always the globally installed package (updated by npm install -g)
-      const cliPath = new URL('../cli.js', import.meta.url).pathname;
+      // Get the instar CLI path — resolves from the lifeline's installed location.
+      // CRITICAL: If the lifeline was started from an npx cache, prefer the global
+      // install so that auto-updates actually take effect on restart.
+      let cliPath = new URL('../cli.js', import.meta.url).pathname;
+      if (cliPath.includes('.npm/_npx')) {
+        try {
+          const prefix = execFileSync('npm', ['prefix', '-g'], {
+            encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000,
+          }).trim();
+          const globalCli = path.join(prefix, 'lib', 'node_modules', 'instar', 'dist', 'cli.js');
+          if (fs.existsSync(globalCli)) {
+            console.log(`[Supervisor] Redirecting from npx cache to global install: ${globalCli}`);
+            cliPath = globalCli;
+          }
+        } catch { /* fall back to npx path */ }
+      }
 
       // Stderr capture: tee to crash log file for fast-exit diagnostics
       const crashLogDir = this.stateDir ? path.join(this.stateDir, 'logs') : '/tmp';

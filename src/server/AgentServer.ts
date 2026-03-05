@@ -91,6 +91,10 @@ export class AgentServer {
     spawnManager?: import('../messaging/SpawnRequestManager.js').SpawnRequestManager;
     systemReviewer?: import('../monitoring/SystemReviewer.js').SystemReviewer;
     capabilityMapper?: import('../core/CapabilityMapper.js').CapabilityMapper;
+    topicResumeMap?: import('../core/TopicResumeMap.js').TopicResumeMap;
+    autonomyManager?: import('../core/AutonomyProfileManager.js').AutonomyProfileManager;
+    trustElevationTracker?: import('../core/TrustElevationTracker.js').TrustElevationTracker;
+    autonomousEvolution?: import('../core/AutonomousEvolution.js').AutonomousEvolution;
     coordinator?: MultiMachineCoordinator;
     localSigningKeyPem?: string;
   }) {
@@ -234,6 +238,10 @@ export class AgentServer {
       spawnManager: options.spawnManager ?? null,
       systemReviewer: options.systemReviewer ?? null,
       capabilityMapper: options.capabilityMapper ?? null,
+      topicResumeMap: options.topicResumeMap ?? null,
+      autonomyManager: options.autonomyManager ?? null,
+      trustElevationTracker: options.trustElevationTracker ?? null,
+      autonomousEvolution: options.autonomousEvolution ?? null,
       startTime: this.startTime,
     });
     this.app.use(routes);

@@ -57,6 +57,11 @@ import { CanonicalState } from '../core/CanonicalState.js';
 import { ExternalOperationGate, AUTONOMY_PROFILES } from '../core/ExternalOperationGate.js';
 import { MessageSentinel } from '../core/MessageSentinel.js';
 import { AdaptiveTrust } from '../core/AdaptiveTrust.js';
+import { AutonomyProfileManager } from '../core/AutonomyProfileManager.js';
+import { TrustElevationTracker } from '../core/TrustElevationTracker.js';
+import { AutonomousEvolution } from '../core/AutonomousEvolution.js';
+import { DispatchScopeEnforcer } from '../core/DispatchScopeEnforcer.js';
+import { TrustRecovery } from '../core/TrustRecovery.js';
 import { DegradationReporter } from '../monitoring/DegradationReporter.js';
 import { LiveConfig } from '../config/LiveConfig.js';
 import { CoherenceMonitor } from '../monitoring/CoherenceMonitor.js';
@@ -82,12 +87,161 @@ import { createMessagingProbes } from '../monitoring/probes/MessagingProbe.js';
 import { createLifelineProbes } from '../monitoring/probes/LifelineProbe.js';
 import type { PipelineMessage } from '../types/pipeline.js';
 import { toPipeline, toInjection, toLogEntry, formatHistoryLine } from '../types/pipeline.js';
-import type { Message, IntelligenceProvider, UserProfile } from '../core/types.js';
+import type { Message, IntelligenceProvider, UserProfile, InstarConfig } from '../core/types.js';
 import { UserManager } from '../users/UserManager.js';
 import { formatUserContextForSession, hasUserContext } from '../users/UserContextBuilder.js';
+import type { OrphanProcessReaper } from '../monitoring/OrphanProcessReaper.js';
 // setup.ts uses @inquirer/prompts which requires Node 20.12+
 // Dynamic import to avoid breaking the server on older Node versions
 // import { installAutoStart } from './setup.js';
+
+/**
+ * Dependencies for the fix command handler — populated incrementally as
+ * subsystems initialize (some start after wireTelegramRouting).
+ */
+interface FixCommandDeps {
+  state: StateManager;
+  liveConfig: LiveConfig;
+  sessionManager: SessionManager;
+  telegram: TelegramAdapter;
+  config: InstarConfig;
+  orphanReaper?: OrphanProcessReaper;
+  coherenceMonitor?: CoherenceMonitor;
+}
+
+/**
+ * Handle "fix X" and "clean X" commands from Agent Attention notifications.
+ * These are mechanical server-side operations — no Claude session needed.
+ * Returns true if the command was recognized and handled.
+ */
+async function handleFixCommand(topicId: number, text: string, deps: FixCommandDeps): Promise<boolean> {
+  const cmd = text.trim().toLowerCase();
+
+  // Only handle commands in the Agent Attention topic
+  const attentionTopicId = deps.state.get<number>('agent-attention-topic');
+  if (!attentionTopicId || topicId !== attentionTopicId) {
+    return false;
+  }
+
+  const send = (msg: string) => deps.telegram.sendToTopic(topicId, msg);
+
+  if (cmd === 'fix auth') {
+    const existing = deps.liveConfig.get<string>('authToken', '');
+    if (existing) {
+      await send('Your API already has an authentication token configured. No changes needed.');
+      return true;
+    }
+    // Generate a random token
+    const token = Array.from({ length: 32 }, () =>
+      'abcdefghijklmnopqrstuvwxyz0123456789'.charAt(Math.floor(Math.random() * 36))
+    ).join('');
+    deps.liveConfig.set('authToken', token);
+    await send(`Done! Generated and saved a new API authentication token. Your API is now protected.\n\nToken: ${token.slice(0, 8)}... (stored in config)`);
+    return true;
+  }
+
+  if (cmd === 'fix dashboard') {
+    const existing = deps.liveConfig.get<string>('dashboardPin', '');
+    if (existing) {
+      await send(`Your dashboard already has a PIN: ${existing}`);
+      return true;
+    }
+    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    deps.liveConfig.set('dashboardPin', pin);
+    await send(`Done! Generated dashboard PIN: ${pin}`);
+    return true;
+  }
+
+  if (cmd === 'fix shadow') {
+    const localPkg = path.join(deps.config.projectDir, 'node_modules', 'instar');
+    if (!fs.existsSync(localPkg)) {
+      await send('No shadow installation found — your agent is using the global Instar installation correctly.');
+      return true;
+    }
+    try {
+      // Remove the shadow installation
+      const { spawnSync } = await import('node:child_process');
+      spawnSync('rm', ['-rf',
+        path.join(deps.config.projectDir, 'node_modules'),
+        path.join(deps.config.projectDir, 'package.json'),
+        path.join(deps.config.projectDir, 'package-lock.json'),
+      ], { timeout: 10000 });
+      await send('Done! Removed the local shadow installation. Your agent will now use the global Instar binary and receive auto-updates properly.');
+    } catch (err) {
+      await send(`Failed to remove shadow installation: ${err instanceof Error ? err.message : String(err)}\n\nYou can fix this manually by deleting the node_modules folder in your project directory.`);
+    }
+    return true;
+  }
+
+  if (cmd === 'clean processes' || cmd === 'clean') {
+    if (!deps.orphanReaper) {
+      await send('The process monitor is still starting up. Try again in a minute.');
+      return true;
+    }
+    // Run a fresh scan first
+    await deps.orphanReaper.scan();
+    const result = deps.orphanReaper.killAllExternal();
+    if (result.killed === 0) {
+      await send('No external Claude processes found to clean up. Everything looks good.');
+    } else {
+      await send(`Cleaned up ${result.killed} external Claude process${result.killed === 1 ? '' : 'es'}, freeing ~${result.freedMB}MB of memory.`);
+    }
+    return true;
+  }
+
+  if (cmd === 'restart') {
+    // Request a graceful server restart
+    const restartFile = path.join(deps.config.stateDir, 'restart-requested.json');
+    fs.writeFileSync(restartFile, JSON.stringify({
+      requestedAt: new Date().toISOString(),
+      reason: 'User requested restart via Agent Attention fix command',
+      requestedBy: 'fix-command',
+    }));
+    await send('Restart requested. Your agent will restart momentarily.');
+    return true;
+  }
+
+  if (cmd === 'restart sessions') {
+    const running = deps.sessionManager.listRunningSessions();
+    const stale = running.filter(s => !deps.sessionManager.isSessionAlive(s.tmuxSession));
+    if (stale.length === 0) {
+      await send(`All ${running.length} session${running.length === 1 ? ' is' : 's are'} running normally. No action needed.`);
+    } else {
+      for (const s of stale) {
+        try {
+          deps.sessionManager.killSession(s.tmuxSession);
+        } catch { /* best effort */ }
+      }
+      await send(`Found ${stale.length} stuck session${stale.length === 1 ? '' : 's'} and cleaned ${stale.length === 1 ? 'it' : 'them'} up. New sessions will start fresh when needed.`);
+    }
+    return true;
+  }
+
+  if (cmd === 'fix lifeline') {
+    // Lifeline is managed by the separate lifeline process, not the server.
+    // Best we can do is suggest the right command.
+    await send('The lifeline runs as a separate process. To restart it, use the Lifeline topic and send:\n/lifeline restart\n\nThis will reset the circuit breaker and restart your server.');
+    return true;
+  }
+
+  if (cmd === 'fix output') {
+    if (!deps.coherenceMonitor) {
+      await send('The coherence monitor is still starting up. Try again in a minute.');
+      return true;
+    }
+    const report = deps.coherenceMonitor.runCheck();
+    const outputCheck = report.checks.find(c => c.name === 'output-sanity');
+    if (!outputCheck || outputCheck.passed) {
+      await send('Output check passed — no bad patterns found in recent messages. The earlier issue may have resolved itself.');
+    } else {
+      await send(`Output check still showing issues: ${outputCheck.message}\n\nThis usually means your agent is including internal URLs (like "localhost") in messages. Your agent should be using your public domain instead. The issue will be flagged to your agent in its next session.`);
+    }
+    return true;
+  }
+
+  // Not a recognized fix command
+  return false;
+}
 
 interface StartOptions {
   foreground?: boolean;
@@ -131,6 +285,7 @@ function isAutostartInstalled(projectName: string): boolean {
 // Set once the reaper is initialized in startServer().
 let _orphanReaper: import('../monitoring/OrphanProcessReaper.js').OrphanProcessReaper | null = null;
 let _memoryMonitor: import('../monitoring/MemoryPressureMonitor.js').MemoryPressureMonitor | null = null;
+let _fixDeps: FixCommandDeps | null = null;
 
 // Module-level reference for session resume mapping.
 // Set once in startServer() and used by spawnSessionForTopic/respawnSessionForTopic.
@@ -631,6 +786,7 @@ function wireTelegramRouting(
   quotaTracker?: QuotaTracker,
   topicMemory?: TopicMemory,
   userManager?: UserManager,
+  fixCommandHandler?: (topicId: number, text: string) => Promise<boolean>,
 ): void {
   telegram.onTopicMessage = (msg: Message) => {
     const topicId = (msg.metadata?.messageThreadId as number) ?? null;
@@ -670,6 +826,42 @@ function wireTelegramRouting(
         }
       })();
       return;
+    }
+
+    // ── Fix commands from notification messages ──────────────────────
+    // Handle "fix auth", "clean processes", "restart", etc. directly
+    // in the server process — no need to spawn a Claude session for these.
+    if (fixCommandHandler) {
+      const cmdText = text.trim().toLowerCase();
+      const isFixCommand = cmdText.startsWith('fix ') || cmdText.startsWith('clean ') ||
+        cmdText.startsWith('restart') || cmdText === 'fix' || cmdText === 'clean';
+      if (isFixCommand) {
+        (async () => {
+          try {
+            const handled = await fixCommandHandler(topicId, text);
+            if (!handled) {
+              // Not a recognized fix command — fall through to session routing
+              // Re-trigger the normal routing by calling the topic message handler again
+              // Actually, since we can't re-trigger, just send a help message
+              await telegram.sendToTopic(topicId,
+                `I didn't recognize that command. Available fix commands:\n` +
+                `• "fix auth" — Generate an API security token\n` +
+                `• "fix lifeline" — Restart the crash-recovery system\n` +
+                `• "fix shadow" — Remove shadow installation\n` +
+                `• "clean processes" — Kill external Claude processes\n` +
+                `• "restart" — Restart the server\n` +
+                `• "restart sessions" — Restart stuck sessions`
+              );
+            }
+          } catch (err) {
+            console.error(`[telegram] Fix command error:`, err);
+            await telegram.sendToTopic(topicId,
+              `Something went wrong while trying to fix that: ${err instanceof Error ? err.message : String(err)}`
+            ).catch(() => {});
+          }
+        })();
+        return;
+      }
     }
 
     // ── Pipeline-typed routing ──────────────────────────────────────
@@ -938,6 +1130,32 @@ export async function startServer(options: StartOptions): Promise<void> {
       timestamp: new Date(),
       topicId: resolvedTopicId,
     }).catch(() => { /* @silent-fallback-ok */ });
+  }
+
+  /**
+   * Translate coherence check failures into human-readable, actionable messages.
+   */
+  function formatCoherenceFailure(checkName: string, message: string): string {
+    switch (checkName) {
+      case 'output-sanity':
+        return `Output Quality Issue — ${message}\nYour agent may be sending messages with placeholder text or internal URLs. Reply "fix output" to have the agent investigate and clean this up.`;
+      case 'readiness-auth-token':
+        return `Security: API Unprotected — Your agent's API has no authentication token, so anyone with the URL could access it.\nReply "fix auth" to generate and apply a security token.`;
+      case 'readiness-dashboard-pin':
+        return `Dashboard PIN Missing — Your dashboard doesn't have a PIN set.\nReply "fix dashboard" to generate one.`;
+      case 'readiness-telegram-token':
+        return `Telegram Not Connected — Your agent's Telegram bot token is missing, so it can't send or receive messages.\nCheck your .instar/config.json messaging settings.`;
+      case 'config-file-valid':
+        return `Configuration Corrupt — Your agent's config file is damaged and may cause unexpected behavior.\nReply "fix config" to attempt repair.`;
+      case 'process-version-mismatch':
+        return `Update Pending — ${message}\nYour agent is running an older version than what's installed. Reply "restart" to apply the update.`;
+      case 'shadow-installation':
+        return `Shadow Installation Detected — A local copy of Instar is overriding the global one, which prevents auto-updates from working.\nReply "fix shadow" to remove it.`;
+      case 'state-topic-registry':
+        return `Topic Registry Damaged — Your agent's topic-to-session mapping is corrupt, which may cause messages to go to the wrong session.\nReply "fix registry" to rebuild it.`;
+      default:
+        return `${checkName}: ${message}`;
+    }
   }
 
   // Migration: fix autoApply default bug from init.ts (pre-0.9.47).
@@ -1238,6 +1456,9 @@ export async function startServer(options: StartOptions): Promise<void> {
         scheduler.canRunJob = quotaTracker.canRunJob.bind(quotaTracker);
         scheduler.setQuotaTracker(quotaTracker);
       }
+      if (sharedIntelligence) {
+        scheduler.setIntelligence(sharedIntelligence);
+      }
       scheduler.start();
       console.log(pc.green('  Scheduler started'));
     } else if (config.scheduler.enabled && !coordinator.isAwake) {
@@ -1350,8 +1571,19 @@ export async function startServer(options: StartOptions): Promise<void> {
       // Initialize persistent UserManager for user identity resolution (Gap 8)
       const userManager = new UserManager(config.stateDir, config.users);
 
+      // Fix command dependencies — populated later when subsystems initialize.
+      // Uses a mutable ref so wireTelegramRouting can capture it in a closure now.
+      _fixDeps = {
+        state,
+        liveConfig,
+        sessionManager,
+        telegram,
+        config,
+      };
+
       // Wire up topic → session routing and session management callbacks
-      wireTelegramRouting(telegram, sessionManager, quotaTracker, topicMemory, userManager);
+      wireTelegramRouting(telegram, sessionManager, quotaTracker, topicMemory, userManager,
+        (topicId, text) => handleFixCommand(topicId, text, _fixDeps!));
       wireTelegramCallbacks(telegram, sessionManager, state, quotaTracker, accountSwitcher, config.sessions.claudePath, topicMemory);
 
       // Wire up unknown-user handling (Multi-User Setup Wizard Phase 4.5)
@@ -1909,6 +2141,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     });
     orphanReaper.start();
     _orphanReaper = orphanReaper;
+    if (_fixDeps) _fixDeps.orphanReaper = orphanReaper;
     _memoryMonitor = memoryMonitor;
     console.log(pc.green('  Orphan process reaper enabled'));
 
@@ -1921,15 +2154,15 @@ export async function startServer(options: StartOptions): Promise<void> {
       port: config.port,
       onIncoherence: (report) => {
         const failedChecks = report.checks.filter(c => !c.passed && !c.corrected);
-        // Put check names on the first line — the batcher's formatDigest only shows the first line
-        const checkNames = failedChecks.map(c => c.name).join(', ');
-        const details = failedChecks.map(c => `  • ${c.name}: ${c.message}`).join('\n');
-        notify('SUMMARY', 'system',
-          `Coherence: ${checkNames} failed (${report.failed} issue${report.failed === 1 ? '' : 's'})\n${details}`
-        );
+        const parts = failedChecks.map(c => formatCoherenceFailure(c.name, c.message));
+        const intro = failedChecks.length === 1
+          ? 'Your agent found an issue that needs attention:'
+          : `Your agent found ${failedChecks.length} issues that need attention:`;
+        notify('SUMMARY', 'system', `${intro}\n\n${parts.join('\n\n')}`);
       },
     });
     coherenceMonitor.start();
+    if (_fixDeps) _fixDeps.coherenceMonitor = coherenceMonitor;
     console.log(pc.green('  Coherence monitor enabled'));
 
     // Commitment Tracker — durable promise enforcement for agent commitments.
@@ -2090,6 +2323,59 @@ export async function startServer(options: StartOptions): Promise<void> {
         : 'off';
       console.log(pc.green(`  External operation safety: gate=${autonomyLevel}, sentinel=${sentinelMode}, trust=on`));
     }
+
+    // Adaptive Autonomy — unified profile coordinator
+    const autonomyManager = new AutonomyProfileManager({
+      stateDir: config.stateDir,
+      config,
+      adaptiveTrust: adaptiveTrust ?? null,
+      evolution: evolution ?? null,
+    });
+    console.log(pc.green(`  Autonomy profile: ${autonomyManager.getProfile()}`));
+
+    // Trust Elevation Tracker — monitors acceptance rates and surfaces upgrade opportunities
+    const trustElevationTracker = new TrustElevationTracker({
+      stateDir: config.stateDir,
+    });
+
+    // Autonomous Evolution — auto-approval and auto-implementation of proposals
+    const autonomousEvolution = new AutonomousEvolution({
+      stateDir: config.stateDir,
+      enabled: autonomyManager.getResolvedState().evolutionApprovalMode === 'autonomous',
+    });
+
+    // Dispatch Scope Enforcer — scope tiers for dispatch execution
+    const dispatchScopeEnforcer = new DispatchScopeEnforcer();
+
+    // Trust Recovery — recovery path after trust incidents
+    const trustRecovery = extOpsEnabled ? new TrustRecovery({
+      stateDir: config.stateDir,
+    }) : undefined;
+
+    // ── Adaptive Autonomy Wiring ──────────────────────────────────────
+    // Wire the new modules together so they exchange events at runtime.
+
+    // 1. AdaptiveTrust ↔ TrustRecovery
+    //    When trust drops (incident), record in TrustRecovery.
+    //    When operations succeed post-incident, increment recovery counter.
+    if (adaptiveTrust && trustRecovery) {
+      adaptiveTrust.setTrustRecovery(trustRecovery);
+    }
+
+    // 2. AutoDispatcher ↔ DispatchScopeEnforcer
+    //    Before executing a dispatch, check scope permissions against current autonomy profile.
+    if (autoDispatcher) {
+      autoDispatcher.setScopeEnforcer(dispatchScopeEnforcer, autonomyManager);
+    }
+
+    // 3. EvolutionManager ↔ TrustElevationTracker + AutonomousEvolution
+    //    Proposal decisions feed trust elevation tracking.
+    //    Autonomous mode uses AutonomousEvolution for auto-implementation.
+    evolution.setAdaptiveAutonomyModules({
+      trustElevationTracker,
+      autonomousEvolution,
+      autonomyManager,
+    });
 
     // Wire sentinel into Telegram message flow — intercepts BEFORE session routing.
     // Must be wired AFTER sentinel is created but BEFORE server starts.
@@ -2313,7 +2599,7 @@ export async function startServer(options: StartOptions): Promise<void> {
       console.log(pc.green(`  System Reviewer: ${probes.length} probes registered`));
     }
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, capabilityMapper, topicResumeMap: _topicResumeMap ?? undefined, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, capabilityMapper, topicResumeMap: _topicResumeMap ?? undefined, autonomyManager, trustElevationTracker, autonomousEvolution, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem });
     await server.start();
 
     // Connect DegradationReporter downstream systems now that everything is initialized.

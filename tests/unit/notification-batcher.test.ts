@@ -153,10 +153,7 @@ describe('NotificationBatcher', () => {
 
       expect(sendFn.calls).toHaveLength(1);
       const text = sendFn.calls[0].text;
-      expect(text).toContain('Summary (2 items)');
-      expect(text).toContain('JOBS:');
       expect(text).toContain('health-check');
-      expect(text).toContain('ATTENTION:');
       expect(text).toContain('API rate limit');
       expect(batcher.getQueueSize().summary).toBe(0);
     });
@@ -173,8 +170,7 @@ describe('NotificationBatcher', () => {
       await batcher.flush('DIGEST');
 
       expect(sendFn.calls).toHaveLength(1);
-      expect(sendFn.calls[0].text).toContain('Digest (1 item)');
-      expect(sendFn.calls[0].text).toContain('SYSTEM:');
+      expect(sendFn.calls[0].text).toContain('Memory sync completed');
     });
 
     it('returns 0 for empty queue', async () => {
@@ -231,39 +227,33 @@ describe('NotificationBatcher', () => {
       ...overrides,
     });
 
-    it('groups by category with headers', () => {
+    it('shows full messages sorted by timestamp', () => {
       const { batcher } = createBatcher();
 
       const items = [
-        qItem({ category: 'job-complete', message: 'Job A', timestamp: new Date('2026-02-25T12:00:00Z'), dedupKey: 'a' }),
-        qItem({ category: 'job-complete', message: 'Job B', timestamp: new Date('2026-02-25T12:01:00Z'), dedupKey: 'b' }),
+        qItem({ category: 'job-complete', message: 'Job A completed', timestamp: new Date('2026-02-25T12:00:00Z'), dedupKey: 'a' }),
+        qItem({ category: 'job-complete', message: 'Job B completed', timestamp: new Date('2026-02-25T12:01:00Z'), dedupKey: 'b' }),
         qItem({ category: 'session-lifecycle', message: 'Session X started', timestamp: new Date('2026-02-25T12:02:00Z'), dedupKey: 'c' }),
       ];
 
       const digest = batcher.formatDigest('Summary', items);
-      expect(digest).toContain('Summary (3 items)');
-      expect(digest).toContain('JOBS:');
-      expect(digest).toContain('SESSIONS:');
+      expect(digest).toContain('Job A completed');
+      expect(digest).toContain('Job B completed');
+      expect(digest).toContain('Session X started');
+      // Items should be sorted by timestamp
+      expect(digest.indexOf('Job A')).toBeLessThan(digest.indexOf('Session X'));
     });
 
-    it('sorts categories by first timestamp', () => {
+    it('sorts items by timestamp across categories', () => {
       const { batcher } = createBatcher();
 
       const items = [
-        qItem({ category: 'session-lifecycle', message: 'Late', timestamp: new Date('2026-02-25T13:00:00Z'), dedupKey: 'a' }),
-        qItem({ category: 'job-complete', message: 'Early', timestamp: new Date('2026-02-25T12:00:00Z'), dedupKey: 'b' }),
+        qItem({ category: 'session-lifecycle', message: 'Late event', timestamp: new Date('2026-02-25T13:00:00Z'), dedupKey: 'a' }),
+        qItem({ category: 'job-complete', message: 'Early event', timestamp: new Date('2026-02-25T12:00:00Z'), dedupKey: 'b' }),
       ];
 
       const digest = batcher.formatDigest('Test', items);
-      expect(digest.indexOf('JOBS')).toBeLessThan(digest.indexOf('SESSIONS'));
-    });
-
-    it('uses category name for unknown categories', () => {
-      const { batcher } = createBatcher();
-
-      const items = [qItem({ category: 'custom-thing', message: 'Custom', dedupKey: 'custom' })];
-
-      expect(batcher.formatDigest('Test', items)).toContain('CUSTOM THING:');
+      expect(digest.indexOf('Early')).toBeLessThan(digest.indexOf('Late'));
     });
 
     it('strips HTML tags', () => {
@@ -276,20 +266,14 @@ describe('NotificationBatcher', () => {
       expect(digest).toContain('Bold text italic');
     });
 
-    it('truncates long messages', () => {
+    it('shows full message content without truncation', () => {
       const { batcher } = createBatcher();
 
-      const items = [qItem({ category: 'system', message: 'A'.repeat(200), dedupKey: 'long' })];
+      const longMsg = 'A'.repeat(200);
+      const items = [qItem({ category: 'system', message: longMsg, dedupKey: 'long' })];
 
       const digest = batcher.formatDigest('Test', items);
-      const itemLine = digest.split('\n').find(l => l.trim().startsWith('- '));
-      expect(itemLine!.length).toBeLessThanOrEqual(124);
-    });
-
-    it('uses singular "item" for single item', () => {
-      const { batcher } = createBatcher();
-      const items = [qItem({ category: 'system', message: 'One', dedupKey: 'one' })];
-      expect(batcher.formatDigest('Test', items)).toContain('(1 item)');
+      expect(digest).toContain(longMsg);
     });
 
     it('shows repeat count for collapsed duplicates', () => {
@@ -387,17 +371,17 @@ describe('NotificationBatcher', () => {
       // Simulate what the timer does: flush SUMMARY
       await batcher.flush('SUMMARY');
       expect(sendFn.calls).toHaveLength(1);
-      expect(sendFn.calls[0].text).toContain('Summary');
+      expect(sendFn.calls[0].text).toContain('Queued');
     });
 
     it('auto-flushes DIGEST via flush method', async () => {
       const { batcher, sendFn } = createBatcher({ digestIntervalMinutes: 120 });
 
-      await batcher.enqueue(makeNotification({ tier: 'DIGEST', message: 'Queued' }));
+      await batcher.enqueue(makeNotification({ tier: 'DIGEST', message: 'Queued digest' }));
 
       await batcher.flush('DIGEST');
       expect(sendFn.calls).toHaveLength(1);
-      expect(sendFn.calls[0].text).toContain('Digest');
+      expect(sendFn.calls[0].text).toContain('Queued digest');
     });
 
     it('flush returns 0 for empty queues', async () => {
@@ -505,7 +489,6 @@ describe('NotificationBatcher', () => {
       await batcher.flush('SUMMARY');
 
       expect(sendFn.calls).toHaveLength(1);
-      expect(sendFn.calls[0].text).toContain('1 item'); // Collapsed to 1
       expect(sendFn.calls[0].text).toContain('(×3)');
     });
 
@@ -637,7 +620,10 @@ describe('NotificationBatcher', () => {
       await batcher.flush('SUMMARY');
 
       expect(sendFn.calls).toHaveLength(1);
-      expect(sendFn.calls[0].text).toContain('10 items');
+      // All 10 messages should be in the output
+      for (const cat of categories) {
+        expect(sendFn.calls[0].text).toContain(`${cat} notification`);
+      }
     });
   });
 });

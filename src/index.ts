@@ -18,6 +18,27 @@ export type { FeedbackQualityResult } from './core/FeedbackManager.js';
 export { EvolutionManager } from './core/EvolutionManager.js';
 export { DecisionJournal } from './core/DecisionJournal.js';
 export type { DecisionJournalStats } from './core/DecisionJournal.js';
+export { ExecutionJournal } from './core/ExecutionJournal.js';
+export type { ExecutionJournalStats } from './core/ExecutionJournal.js';
+export { PatternAnalyzer } from './core/PatternAnalyzer.js';
+export type {
+  PatternType,
+  PatternConfidence,
+  DetectedPattern,
+  PatternReport,
+  PatternAnalyzerOptions,
+} from './core/PatternAnalyzer.js';
+export { ReflectionConsolidator } from './core/ReflectionConsolidator.js';
+export type {
+  ConsolidationResult,
+  JobConsolidationSummary,
+  ConsolidatorOptions,
+} from './core/ReflectionConsolidator.js';
+export { JobReflector } from './core/JobReflector.js';
+export type {
+  ReflectionInsight,
+  JobReflectorConfig,
+} from './core/JobReflector.js';
 export { IntentDriftDetector } from './core/IntentDriftDetector.js';
 export type { DriftWindow, DriftSignal, DriftAnalysis, AlignmentScore } from './core/IntentDriftDetector.js';
 export { OrgIntentManager } from './core/OrgIntentManager.js';
@@ -142,6 +163,27 @@ export type {
   TrustProfile, ServiceTrust, TrustEntry, TrustHistory,
   TrustChangeEvent, AdaptiveTrustConfig, TrustElevationSuggestion,
 } from './core/AdaptiveTrust.js';
+export { AutonomyProfileManager } from './core/AutonomyProfileManager.js';
+export { TrustElevationTracker } from './core/TrustElevationTracker.js';
+export type {
+  ApprovalEvent, RubberStampSignal, EvolutionAcceptanceStats,
+  ElevationOpportunity, TrustElevationState, TrustElevationConfig,
+} from './core/TrustElevationTracker.js';
+export { AutonomousEvolution } from './core/AutonomousEvolution.js';
+export type {
+  ReviewDecision, ReviewResult, ScopeClassification,
+  ProposedJobChange, EvolutionNotification, AutonomousEvolutionConfig,
+} from './core/AutonomousEvolution.js';
+export { DispatchScopeEnforcer } from './core/DispatchScopeEnforcer.js';
+export type {
+  DispatchScopeTier, ScopeCheckResult,
+} from './core/DispatchScopeEnforcer.js';
+export { TrustRecovery } from './core/TrustRecovery.js';
+export type {
+  IncidentRecord, RecoverySuggestion, TrustRecoveryConfig,
+} from './core/TrustRecovery.js';
+export { AutonomySkill } from './core/AutonomySkill.js';
+export type { AutonomySkillDeps, AutonomyResponse } from './core/AutonomySkill.js';
 export { SecretRedactor } from './core/SecretRedactor.js';
 export type {
   SecretType, RedactionEntry, RedactionResult, RestorationResult,
@@ -445,6 +487,9 @@ export type {
   MultiMachineConfig,
   CoordinationMode,
   AgentAutonomyLevel,
+  AutonomyProfileLevel,
+  ResolvedAutonomyState,
+  NotificationPreferences,
   UserRegistrationPolicy,
   AgentAutonomyCapabilities,
   AgentAutonomyConfig,
@@ -466,5 +511,14 @@ export type {
   MemorySource,
   MemorySearchResult,
   MemoryIndexStats,
+} from './core/types.js';
+export type {
+  LivingSkillsConfig,
+  DefinedStepConfig,
+  ExecutionRecord,
+  ExecutionStep,
+  ExecutionStepSource,
+  ExecutionDeviation,
+  PendingStep,
 } from './core/types.js';
 export type { Dispatch, DispatchCheckResult, DispatchEvaluation, EvaluationDecision, DispatchFeedback, DispatchStats } from './core/DispatchManager.js';
