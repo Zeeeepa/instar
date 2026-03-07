@@ -14,7 +14,7 @@
  * Meta Cloud API docs: https://developers.facebook.com/docs/whatsapp/cloud-api
  */
 
-import type { WhatsAppAdapter, BusinessApiConfig } from '../WhatsAppAdapter.js';
+import type { WhatsAppAdapter, BusinessApiConfig, BackendCapabilities } from '../WhatsAppAdapter.js';
 
 // ── API constants ──────────────────────────────────────
 
@@ -150,9 +150,21 @@ export class BusinessApiBackend {
 
       const phoneNumber = data.display_phone_number ?? 'unknown';
       await this.adapter.setConnectionState('connected', phoneNumber);
-      this.adapter.setSendFunction(async (jid, text) => {
-        await this.sendTextMessage(jid, text);
-      });
+
+      // Inject full backend capabilities (Phase 4)
+      const capabilities: BackendCapabilities = {
+        sendText: async (jid, text) => {
+          await this.sendTextMessage(jid, text);
+        },
+        // Typing indicators not supported by Business API
+        sendReadReceipt: async (_jid, messageId) => {
+          await this.markMessageRead(messageId);
+        },
+        sendReaction: async (jid, messageId, emoji) => {
+          await this.sendReaction(jid, messageId, emoji);
+        },
+      };
+      this.adapter.setBackendCapabilities(capabilities);
       this.handlers.onConnected(phoneNumber);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -332,6 +344,54 @@ export class BusinessApiBackend {
     this.messagesSent++;
     const data = await response.json() as { messages?: Array<{ id: string }> };
     return data.messages?.[0]?.id ?? null;
+  }
+
+  // ── UX signals (Phase 4) ──────────────────────────────
+
+  /** Mark a message as read (blue ticks). */
+  async markMessageRead(messageId: string): Promise<void> {
+    await fetch(
+      `${META_API_BASE}/${this.config.phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          status: 'read',
+          message_id: messageId,
+        }),
+      },
+    );
+    // Fire-and-forget: don't throw on failure
+  }
+
+  /** React to a message with an emoji. */
+  async sendReaction(to: string, messageId: string, emoji: string): Promise<void> {
+    const phoneNumber = to.replace(/@s\.whatsapp\.net$/, '');
+
+    await fetch(
+      `${META_API_BASE}/${this.config.phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: phoneNumber,
+          type: 'reaction',
+          reaction: {
+            message_id: messageId,
+            emoji,
+          },
+        }),
+      },
+    );
+    // Fire-and-forget: don't throw on failure
   }
 
   // ── Status ──────────────────────────────────────────

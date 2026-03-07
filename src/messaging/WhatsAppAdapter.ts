@@ -90,6 +90,32 @@ export interface WhatsAppConfig {
 
   /** Custom privacy consent message */
   consentMessage?: string;
+
+  /** Send typing indicators when processing messages. Baileys only. Default: true */
+  sendTypingIndicators?: boolean;
+
+  /** Send read receipts (blue ticks) on message receive. Default: true */
+  sendReadReceipts?: boolean;
+
+  /** Emoji to react with on message receive (ack reaction). Set false to disable. Default: '👀' */
+  ackReactionEmoji?: string | false;
+}
+
+// ── Backend capabilities ──────────────────────────────────────
+// Replaces the single sendFunction pattern. Backends inject their full
+// capability set, and the adapter calls available capabilities as needed.
+
+export interface BackendCapabilities {
+  /** Send a text message. Required. */
+  sendText: (jid: string, text: string) => Promise<void>;
+  /** Send typing/composing indicator. Baileys only. */
+  sendTyping?: (jid: string) => Promise<void>;
+  /** Stop typing indicator. Baileys only. */
+  stopTyping?: (jid: string) => Promise<void>;
+  /** Mark messages as read (blue ticks). */
+  sendReadReceipt?: (jid: string, messageId: string, msgKey?: unknown) => Promise<void>;
+  /** React to a message with an emoji. */
+  sendReaction?: (jid: string, messageId: string, emoji: string, msgKey?: unknown) => Promise<void>;
 }
 
 // ── Connection state ──────────────────────────────────────
@@ -143,8 +169,15 @@ export class WhatsAppAdapter implements MessagingAdapter {
   // Privacy consent tracking
   private privacyConsent: PrivacyConsent;
 
-  // Backend send function — injected by BaileysBackend or BusinessApiBackend
-  private sendFunction: ((jid: string, text: string) => Promise<void>) | null = null;
+  // Backend capabilities — injected by BaileysBackend or BusinessApiBackend
+  private capabilities: BackendCapabilities | null = null;
+  // Backward compat alias
+  private get sendFunction(): ((jid: string, text: string) => Promise<void>) | null {
+    return this.capabilities?.sendText ?? null;
+  }
+
+  // QR code state (for dashboard display)
+  private currentQrCode: string | null = null;
 
   constructor(config: Record<string, unknown>, stateDir: string) {
     this.config = config as unknown as WhatsAppConfig;
@@ -208,7 +241,28 @@ export class WhatsAppAdapter implements MessagingAdapter {
 
   /** Set the backend send function (called by BaileysBackend after connection). */
   setSendFunction(fn: (jid: string, text: string) => Promise<void>): void {
-    this.sendFunction = fn;
+    // Backward compat — wraps into capabilities
+    if (this.capabilities) {
+      this.capabilities.sendText = fn;
+    } else {
+      this.capabilities = { sendText: fn };
+    }
+  }
+
+  /** Set full backend capabilities (Phase 4: typing, read receipts, reactions). */
+  setBackendCapabilities(caps: BackendCapabilities): void {
+    this.capabilities = caps;
+  }
+
+  /** Set QR code for dashboard display (called by BaileysBackend). */
+  setQrCode(qr: string | null): void {
+    this.currentQrCode = qr;
+    this.eventBus.emit('whatsapp:qr-update', { qr, timestamp: new Date().toISOString() }).catch(() => {});
+  }
+
+  /** Get current QR code (null if connected or not in QR state). */
+  getQrCode(): string | null {
+    return this.currentQrCode;
   }
 
   /** Update connection state (called by backend). */
@@ -218,6 +272,7 @@ export class WhatsAppAdapter implements MessagingAdapter {
     if (state === 'connected') {
       this.lastConnected = new Date().toISOString();
       this.reconnectAttempts = 0;
+      this.setQrCode(null); // QR no longer needed
       await this.flushOutboundQueue();
     }
   }
@@ -311,6 +366,7 @@ export class WhatsAppAdapter implements MessagingAdapter {
     text: string,
     senderName?: string,
     timestamp?: number,
+    msgKey?: unknown,
   ): Promise<void> {
     // Dedup
     if (this.processedMessageIds.has(messageId)) return;
@@ -324,6 +380,11 @@ export class WhatsAppAdapter implements MessagingAdapter {
         this.processedMessageIds.delete(id);
         count++;
       }
+    }
+
+    // ── UX signals: read receipt + ack reaction (fire-and-forget, before auth) ──
+    if (this.config.sendReadReceipts !== false && this.capabilities?.sendReadReceipt) {
+      this.capabilities.sendReadReceipt(jid, messageId, msgKey).catch(() => {});
     }
 
     const phoneNumber = jidToPhone(jid) ?? jid;
@@ -421,6 +482,15 @@ export class WhatsAppAdapter implements MessagingAdapter {
       senderName,
       platformUserId: normalizedPhone,
     });
+
+    // ── UX signals: ack reaction + typing indicator (after auth, before processing) ──
+    const ackEmoji = this.config.ackReactionEmoji;
+    if (ackEmoji !== false && this.capabilities?.sendReaction) {
+      this.capabilities.sendReaction(jid, messageId, ackEmoji ?? '👀', msgKey).catch(() => {});
+    }
+    if (this.config.sendTypingIndicators !== false && this.capabilities?.sendTyping) {
+      this.capabilities.sendTyping(jid).catch(() => {});
+    }
 
     // Command routing
     const handled = await this.commandRouter.route(text, jid, normalizedPhone, { senderName });

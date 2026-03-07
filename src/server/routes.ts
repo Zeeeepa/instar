@@ -2230,6 +2230,19 @@ export function createRoutes(ctx: RouteContext): Router {
     res.json(ctx.whatsapp.getStatus());
   });
 
+  router.get('/whatsapp/qr', (_req, res) => {
+    if (!ctx.whatsapp) {
+      res.status(503).json({ error: 'WhatsApp not configured' });
+      return;
+    }
+    const status = ctx.whatsapp.getStatus();
+    res.json({
+      qr: ctx.whatsapp.getQrCode(),
+      state: status.state,
+      phoneNumber: status.phoneNumber,
+    });
+  });
+
   // ── Relationships ─────────────────────────────────────────────────
 
   router.get('/relationships', (req, res) => {

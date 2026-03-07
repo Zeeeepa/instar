@@ -103,6 +103,29 @@ export interface LoginRequestEvent {
   channelId: string;
 }
 
+export interface PresenceTypingEvent {
+  channelId: string;
+  timestamp: string;
+}
+
+export interface ReadReceiptEvent {
+  channelId: string;
+  messageId: string;
+  timestamp: string;
+}
+
+export interface AckReactionEvent {
+  channelId: string;
+  messageId: string;
+  emoji: string;
+  timestamp: string;
+}
+
+export interface QrUpdateEvent {
+  qr: string | null;
+  timestamp: string;
+}
+
 // ── Event map ──────────────────────────────────────────────────────
 
 export interface MessagingEventMap {
@@ -119,6 +142,10 @@ export interface MessagingEventMap {
   'request:quota': QuotaRequestEvent;
   'request:switch-account': SwitchAccountRequestEvent;
   'request:login': LoginRequestEvent;
+  'presence:typing': PresenceTypingEvent;
+  'receipt:read': ReadReceiptEvent;
+  'reaction:ack': AckReactionEvent;
+  'whatsapp:qr-update': QrUpdateEvent;
 }
 
 export type MessagingEventName = keyof MessagingEventMap;

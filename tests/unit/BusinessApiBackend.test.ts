@@ -14,6 +14,7 @@ function createMockAdapter(): WhatsAppAdapter {
   return {
     setConnectionState: vi.fn().mockResolvedValue(undefined),
     setSendFunction: vi.fn(),
+    setBackendCapabilities: vi.fn(),
   } as unknown as WhatsAppAdapter;
 }
 
@@ -145,7 +146,11 @@ describe('BusinessApiBackend', () => {
         }),
       );
       expect(adapter.setConnectionState).toHaveBeenCalledWith('connected', '+14155551234');
-      expect(adapter.setSendFunction).toHaveBeenCalled();
+      expect(adapter.setBackendCapabilities).toHaveBeenCalledWith(expect.objectContaining({
+        sendText: expect.any(Function),
+        sendReadReceipt: expect.any(Function),
+        sendReaction: expect.any(Function),
+      }));
       expect(handlers.onConnected).toHaveBeenCalledWith('+14155551234');
     });
 
@@ -180,6 +185,7 @@ describe('BusinessApiBackend', () => {
       await backend.connect();
 
       expect(adapter.setConnectionState).toHaveBeenCalledWith('connected', 'unknown');
+      expect(adapter.setBackendCapabilities).toHaveBeenCalled();
       expect(handlers.onConnected).toHaveBeenCalledWith('unknown');
     });
   });
@@ -892,8 +898,8 @@ describe('BusinessApiBackend', () => {
 
   // ── Send function injection ──────────────────────────
 
-  describe('send function injection', () => {
-    it('injects send function into adapter on connect', async () => {
+  describe('backend capabilities injection', () => {
+    it('injects capabilities into adapter on connect', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
         new Response(JSON.stringify({ display_phone_number: '+14155551234' }), { status: 200 }),
       );
@@ -902,17 +908,86 @@ describe('BusinessApiBackend', () => {
       const { backend } = createBackend({}, adapter);
       await backend.connect();
 
-      expect(adapter.setSendFunction).toHaveBeenCalledWith(expect.any(Function));
+      expect(adapter.setBackendCapabilities).toHaveBeenCalledWith(expect.objectContaining({
+        sendText: expect.any(Function),
+        sendReadReceipt: expect.any(Function),
+        sendReaction: expect.any(Function),
+      }));
 
-      // The injected function should call sendTextMessage
-      const injectedFn = (adapter.setSendFunction as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      // The injected sendText should call sendTextMessage
+      const caps = (adapter.setBackendCapabilities as ReturnType<typeof vi.fn>).mock.calls[0][0];
 
       const fetchSpy2 = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
         new Response(JSON.stringify({ messages: [{ id: 'wamid.injected' }] }), { status: 200 }),
       );
 
-      await injectedFn('14155552671@s.whatsapp.net', 'Via injected fn');
+      await caps.sendText('14155552671@s.whatsapp.net', 'Via injected fn');
       expect(fetchSpy2).toHaveBeenCalled();
+    });
+
+    it('does not include sendTyping (not supported by Business API)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ display_phone_number: '+14155551234' }), { status: 200 }),
+      );
+
+      const adapter = createMockAdapter();
+      const { backend } = createBackend({}, adapter);
+      await backend.connect();
+
+      const caps = (adapter.setBackendCapabilities as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(caps.sendTyping).toBeUndefined();
+    });
+
+    it('sendReadReceipt calls markMessageRead API', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ display_phone_number: '+14155551234' }), { status: 200 }),
+      );
+
+      const adapter = createMockAdapter();
+      const { backend } = createBackend({}, adapter);
+      await backend.connect();
+
+      const caps = (adapter.setBackendCapabilities as ReturnType<typeof vi.fn>).mock.calls[0][0];
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response('', { status: 200 }),
+      );
+
+      await caps.sendReadReceipt('14155552671@s.whatsapp.net', 'wamid.read-test');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://graph.facebook.com/v21.0/123456789/messages',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"status":"read"'),
+        }),
+      );
+    });
+
+    it('sendReaction calls reaction API', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ display_phone_number: '+14155551234' }), { status: 200 }),
+      );
+
+      const adapter = createMockAdapter();
+      const { backend } = createBackend({}, adapter);
+      await backend.connect();
+
+      const caps = (adapter.setBackendCapabilities as ReturnType<typeof vi.fn>).mock.calls[0][0];
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response('', { status: 200 }),
+      );
+
+      await caps.sendReaction('14155552671@s.whatsapp.net', 'wamid.react-test', '👀');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://graph.facebook.com/v21.0/123456789/messages',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"reaction"'),
+        }),
+      );
     });
   });
 });

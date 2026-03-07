@@ -16,7 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { WhatsAppAdapter, BaileysConfig, ConnectionState } from '../WhatsAppAdapter.js';
+import type { WhatsAppAdapter, BaileysConfig, ConnectionState, BackendCapabilities } from '../WhatsAppAdapter.js';
 
 // ── Reconnection constants ──────────────────────────────
 
@@ -35,7 +35,7 @@ export interface BaileysEventHandlers {
   onPairingCode: (code: string) => void;
   onConnected: (phoneNumber: string) => void;
   onDisconnected: (reason: string, shouldReconnect: boolean) => void;
-  onMessage: (jid: string, messageId: string, text: string, senderName?: string, timestamp?: number) => void;
+  onMessage: (jid: string, messageId: string, text: string, senderName?: string, timestamp?: number, msgKey?: unknown) => void;
   onError: (error: Error) => void;
 }
 
@@ -105,6 +105,7 @@ export class BaileysBackend {
 
         if (qr && this.config.authMethod === 'qr') {
           this.adapter.setConnectionState('qr-pending');
+          this.adapter.setQrCode(qr);
           this.handlers.onQrCode(qr);
         }
 
@@ -114,9 +115,31 @@ export class BaileysBackend {
           const me = this.socket?.user;
           this.phoneNumber = me?.id?.split(':')[0] ?? null;
           this.adapter.setConnectionState('connected', this.phoneNumber ?? undefined);
-          this.adapter.setSendFunction(async (jid, text) => {
-            await this.socket?.sendMessage(jid, { text });
-          });
+
+          // Inject full backend capabilities (Phase 4)
+          const sock = this.socket;
+          const capabilities: BackendCapabilities = {
+            sendText: async (jid, text) => {
+              await sock?.sendMessage(jid, { text });
+            },
+            sendTyping: async (jid) => {
+              await sock?.sendPresenceUpdate('composing', jid);
+            },
+            stopTyping: async (jid) => {
+              await sock?.sendPresenceUpdate('available', jid);
+            },
+            sendReadReceipt: async (jid, _messageId, msgKey) => {
+              if (msgKey) {
+                await sock?.readMessages([msgKey]);
+              }
+            },
+            sendReaction: async (jid, _messageId, emoji, msgKey) => {
+              if (msgKey) {
+                await sock?.sendMessage(jid, { react: { text: emoji, key: msgKey } });
+              }
+            },
+          };
+          this.adapter.setBackendCapabilities(capabilities);
           this.handlers.onConnected(this.phoneNumber ?? 'unknown');
         }
 
@@ -166,6 +189,7 @@ export class BaileysBackend {
             text,
             senderName,
             typeof timestamp === 'number' ? timestamp : undefined,
+            msg.key,
           );
         }
       });

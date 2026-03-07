@@ -934,6 +934,17 @@ When using the Business API backend (\`backend: "business-api"\`):
 - Interactive button messages for attention items (max 3 buttons per message)
 - WhatsApp status: \`curl http://localhost:<port>/whatsapp/status -H "Authorization: Bearer <token>"\`
 
+### UX Signals (Phase 4)
+
+The agent automatically sends UX signals on message receive:
+- **Read receipts** (blue ticks): sent immediately when a message arrives. Disable: \`sendReadReceipts: false\` in config
+- **Ack reactions**: eyes emoji sent before processing begins. Customize: \`ackReactionEmoji: "thumbsup"\` or disable: \`ackReactionEmoji: false\`
+- **Typing indicators**: composing presence sent while processing (Baileys backend only). Disable: \`sendTypingIndicators: false\`
+
+### Dashboard QR Code
+
+For Baileys backend: \`GET /whatsapp/qr\` returns the current QR code for pairing. The dashboard polls this endpoint and renders the QR for remote phone scanning.
+
 ### Cross-Platform Alerts
 
 When both Telegram and WhatsApp are configured:
