@@ -100,6 +100,7 @@ export class AgentServer {
     localSigningKeyPem?: string;
     whatsapp?: import('../messaging/WhatsAppAdapter.js').WhatsAppAdapter;
     whatsappBusinessBackend?: import('../messaging/backends/BusinessApiBackend.js').BusinessApiBackend;
+    messageBridge?: import('../messaging/shared/MessageBridge.js').MessageBridge;
   }) {
     this.config = options.config;
     this.startTime = new Date();
@@ -256,6 +257,7 @@ export class AgentServer {
       trustElevationTracker: options.trustElevationTracker ?? null,
       autonomousEvolution: options.autonomousEvolution ?? null,
       whatsapp: options.whatsapp ?? null,
+      messageBridge: options.messageBridge ?? null,
       startTime: this.startTime,
     });
     this.app.use(routes);

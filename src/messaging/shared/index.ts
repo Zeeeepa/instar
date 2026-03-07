@@ -22,8 +22,11 @@ export type {
   PromiseExpiredEvent, SessionInterruptRequest, SessionRestartRequest,
   CommandExecutedEvent, UnauthorizedUserEvent, AttentionStatusEvent,
   FlushRequestEvent, QuotaRequestEvent, SwitchAccountRequestEvent,
-  LoginRequestEvent,
+  LoginRequestEvent, PresenceTypingEvent, ReadReceiptEvent,
+  AckReactionEvent, QrUpdateEvent,
 } from './MessagingEventBus.js';
+export { MessageBridge } from './MessageBridge.js';
+export type { BridgeLink, MessageBridgeConfig, MessageBridgeStatus } from './MessageBridge.js';
 export { smartChunk } from './SmartChunker.js';
 export { normalizePhoneNumber, phoneToJid, jidToPhone, isJid, isGroupJid } from './PhoneUtils.js';
 export { PrivacyConsent } from './PrivacyConsent.js';

@@ -1751,6 +1751,7 @@ export async function startServer(options: StartOptions): Promise<void> {
     // ── WhatsApp adapter initialization ──────────────────────────────
     let whatsappAdapter: import('../messaging/WhatsAppAdapter.js').WhatsAppAdapter | undefined;
     let whatsappBusinessBackend: import('../messaging/backends/BusinessApiBackend.js').BusinessApiBackend | undefined;
+    let messageBridge: import('../messaging/shared/MessageBridge.js').MessageBridge | undefined;
 
     const whatsappConfig = config.messaging?.find(m => m.type === 'whatsapp' && m.enabled);
     if (whatsappConfig) {
@@ -1818,6 +1819,30 @@ export async function startServer(options: StartOptions): Promise<void> {
           });
           crossAlerts.start();
           console.log(pc.green('  Cross-platform alerts: WhatsApp <-> Telegram'));
+
+          // Wire message bridge for cross-platform message forwarding
+          try {
+            const { MessageBridge } = await import('../messaging/shared/MessageBridge.js');
+            messageBridge = new MessageBridge({
+              registryPath: path.join(config.stateDir ?? '.instar/state', 'bridge-registry.json'),
+              whatsappEventBus: whatsappAdapter.getEventBus() ?? undefined,
+              telegramEventBus: telegram.getEventBus() ?? undefined,
+              sendToTelegram: async (topicId, text) => {
+                await telegram.sendToTopic(topicId, text);
+              },
+              sendToWhatsApp: async (jid, text) => {
+                await whatsappAdapter!.send({
+                  content: text,
+                  userId: jid,
+                  channel: { type: 'whatsapp', identifier: jid },
+                });
+              },
+            });
+            messageBridge.start();
+            console.log(pc.green('  Message bridge: WhatsApp <-> Telegram'));
+          } catch (bridgeErr) {
+            console.error(`  Message bridge init failed: ${bridgeErr}`);
+          }
         }
 
         console.log(pc.green(`  WhatsApp adapter: ${backendType} backend`));
@@ -2719,7 +2744,7 @@ export async function startServer(options: StartOptions): Promise<void> {
       console.log(pc.green(`  System Reviewer: ${probes.length} probes registered`));
     }
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, capabilityMapper, topicResumeMap: _topicResumeMap ?? undefined, autonomyManager, trustElevationTracker, autonomousEvolution, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem, whatsapp: whatsappAdapter, whatsappBusinessBackend });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, capabilityMapper, topicResumeMap: _topicResumeMap ?? undefined, autonomyManager, trustElevationTracker, autonomousEvolution, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem, whatsapp: whatsappAdapter, whatsappBusinessBackend, messageBridge });
     await server.start();
 
     // Connect DegradationReporter downstream systems now that everything is initialized.

@@ -118,6 +118,7 @@ export interface RouteContext {
   trustElevationTracker: TrustElevationTracker | null;
   autonomousEvolution: AutonomousEvolution | null;
   whatsapp: import('../messaging/WhatsAppAdapter.js').WhatsAppAdapter | null;
+  messageBridge: import('../messaging/shared/MessageBridge.js').MessageBridge | null;
   startTime: Date;
 }
 
@@ -2240,6 +2241,17 @@ export function createRoutes(ctx: RouteContext): Router {
       qr: ctx.whatsapp.getQrCode(),
       state: status.state,
       phoneNumber: status.phoneNumber,
+    });
+  });
+
+  router.get('/messaging/bridge', (_req, res) => {
+    if (!ctx.messageBridge) {
+      res.status(503).json({ error: 'Message bridge not configured' });
+      return;
+    }
+    res.json({
+      ...ctx.messageBridge.getStatus(),
+      links: ctx.messageBridge.getLinks(),
     });
   });
 
