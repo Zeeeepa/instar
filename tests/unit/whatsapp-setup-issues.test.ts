@@ -45,18 +45,18 @@ describe('Issue 1: Baileys peer dependency resolution', () => {
     expect(whatsappSrc).toContain("await import('baileys')");
   });
 
-  it('whatsapp.ts isBaileysInstalled tries both v6 and v7 package names', () => {
-    // v6: @whiskeysockets/baileys, v7: baileys
+  it('whatsapp.ts isBaileysInstalled tries both v7 and v6 package names', () => {
+    // v7: baileys (preferred), v6: @whiskeysockets/baileys (deprecated)
     const fnStart = whatsappSrc.indexOf('async function isBaileysInstalled');
     const fnEnd = whatsappSrc.indexOf('\n}', fnStart);
     const fnBody = whatsappSrc.substring(fnStart, fnEnd);
 
     expect(fnBody).toContain("@whiskeysockets/baileys");
     expect(fnBody).toContain("'baileys'");
-    // v6 should be tried first
-    const v6Index = fnBody.indexOf("@whiskeysockets/baileys");
+    // v7 should be tried first (preferred)
     const v7Index = fnBody.indexOf("'baileys'");
-    expect(v6Index).toBeLessThan(v7Index);
+    const v6Index = fnBody.indexOf("@whiskeysockets/baileys");
+    expect(v7Index).toBeLessThan(v6Index);
   });
 
   it('whatsapp.ts uses isBaileysInstalled in addWhatsApp', () => {
@@ -85,19 +85,24 @@ describe('Issue 1: Baileys peer dependency resolution', () => {
     expect(doctorSection).not.toContain('require.resolve');
   });
 
-  it('BaileysBackend.ts tries both v6 and v7 package names on connect', () => {
-    expect(baileysBackendSrc).toContain("await import('@whiskeysockets/baileys')");
-    expect(baileysBackendSrc).toContain("await import('baileys')");
+  it('BaileysBackend.ts tries v7 first, then v6 fallback on connect', () => {
+    expect(baileysBackendSrc).toContain("import('@whiskeysockets/baileys')");
+    expect(baileysBackendSrc).toContain("import('baileys')");
 
-    // Verify v6 is tried first
-    const v6Index = baileysBackendSrc.indexOf("await import('@whiskeysockets/baileys')");
-    const v7Index = baileysBackendSrc.indexOf("await import('baileys')");
-    expect(v6Index).toBeLessThan(v7Index);
+    // Verify v7 is tried first (preferred)
+    const v7Index = baileysBackendSrc.indexOf("import('baileys')");
+    const v6Index = baileysBackendSrc.indexOf("import('@whiskeysockets/baileys')");
+    expect(v7Index).toBeLessThan(v6Index);
   });
 
-  it('EncryptedAuthStore.ts tries both v6 and v7 package names', () => {
-    expect(encryptedAuthStoreSrc).toContain("await import('@whiskeysockets/baileys')");
-    expect(encryptedAuthStoreSrc).toContain("await import('baileys')");
+  it('EncryptedAuthStore.ts tries v7 first, then v6 fallback', () => {
+    expect(encryptedAuthStoreSrc).toContain("import('@whiskeysockets/baileys')");
+    expect(encryptedAuthStoreSrc).toContain("import('baileys')");
+
+    // v7 first
+    const v7Index = encryptedAuthStoreSrc.indexOf("import('baileys')");
+    const v6Index = encryptedAuthStoreSrc.indexOf("import('@whiskeysockets/baileys')");
+    expect(v7Index).toBeLessThan(v6Index);
   });
 
   it('no file uses require.resolve for Baileys anywhere in src/', () => {
@@ -115,7 +120,7 @@ describe('Issue 1: Baileys peer dependency resolution', () => {
 
 // ── Issue 2: Baileys 405 Connection Failure ──────────────────────
 
-describe('Issue 2: Baileys 405 error handling', () => {
+describe('Issue 2: Baileys connection failure error handling', () => {
   const baileysBackendPath = path.join(process.cwd(), 'src/messaging/backends/BaileysBackend.ts');
   let src: string;
 
@@ -123,54 +128,98 @@ describe('Issue 2: Baileys 405 error handling', () => {
     src = fs.readFileSync(baileysBackendPath, 'utf-8');
   });
 
-  it('BaileysBackend handles 405 status code specifically', () => {
+  it('BaileysBackend detects 405 status code as terminal failure', () => {
     expect(src).toContain('statusCode === 405');
   });
 
-  it('405 handler logs a clear error message about version incompatibility', () => {
-    const section405 = src.substring(
-      src.indexOf('statusCode === 405'),
-      src.indexOf("// Don't reconnect"),
-    );
-    expect(section405).toContain('405');
-    expect(section405).toContain('outdated');
-    expect(section405).toContain('npm install');
+  it('BaileysBackend detects "Connection Failure" in error message', () => {
+    expect(src).toContain("errorMessage.includes('Connection Failure')");
   });
 
-  it('405 does NOT trigger reconnect (reconnecting would be pointless)', () => {
-    // After 405 handling, the code should NOT call scheduleReconnect
+  it('BaileysBackend extracts statusCode from both Boom and plain errors', () => {
+    // Boom errors (v6): err.output.statusCode
+    expect(src).toContain('err?.output?.statusCode');
+    // Plain errors: err.statusCode
+    expect(src).toContain('err?.statusCode');
+  });
+
+  it('terminal failures do NOT trigger reconnect', () => {
     const connectionCloseSection = src.substring(
       src.indexOf("if (connection === 'close')"),
       src.indexOf('// Message events'),
     );
 
-    // Find the 405 block
-    const block405Start = connectionCloseSection.indexOf('statusCode === 405');
-    const block405End = connectionCloseSection.indexOf("} else {", block405Start);
-    const block405 = connectionCloseSection.substring(block405Start, block405End);
-
-    expect(block405).not.toContain('scheduleReconnect');
-  });
-
-  it('405 handler calls onError with descriptive message', () => {
-    const section405 = src.substring(
-      src.indexOf('statusCode === 405'),
-      src.indexOf("// Don't reconnect"),
+    // isTerminalFailure block should not contain scheduleReconnect
+    const terminalBlock = connectionCloseSection.substring(
+      connectionCloseSection.indexOf('isTerminalFailure'),
+      connectionCloseSection.indexOf('// Transient failure'),
     );
-    expect(section405).toContain('onError');
-    expect(section405).toContain('405');
+    expect(terminalBlock).not.toContain('scheduleReconnect');
   });
 
-  it('reconnect backoff delays are defined', () => {
+  it('terminal failure handler calls onError and setLastError', () => {
+    const closeSection = src.substring(
+      src.indexOf("if (connection === 'close')"),
+      src.indexOf('// Message events'),
+    );
+    expect(closeSection).toContain('onError');
+    expect(closeSection).toContain('setLastError');
+  });
+
+  it('does not pass printQRInTerminal option to makeWASocket', () => {
+    // The comment mentioning it is fine — just ensure it's not used as a config option
+    const makeWASocketSection = src.substring(
+      src.indexOf('makeWASocket({'),
+      src.indexOf('});', src.indexOf('makeWASocket({')) + 3,
+    );
+    expect(makeWASocketSection).not.toContain('printQRInTerminal:');
+  });
+
+  it('reconnect backoff delays are defined and escalating', () => {
     expect(src).toContain('BASE_DELAYS');
-    // Should have escalating delays
     const delayMatch = src.match(/BASE_DELAYS\s*=\s*\[([\d,\s]+)\]/);
     expect(delayMatch).not.toBeNull();
     const delays = delayMatch![1].split(',').map(d => parseInt(d.trim()));
-    // Verify delays are escalating
     for (let i = 1; i < delays.length; i++) {
       expect(delays[i]).toBeGreaterThan(delays[i - 1]);
     }
+  });
+});
+
+// ── Issue 3: Pairing code timing ─────────────────────────────
+
+describe('Issue 3: Pairing code requests after connection open', () => {
+  const baileysBackendPath = path.join(process.cwd(), 'src/messaging/backends/BaileysBackend.ts');
+  let src: string;
+
+  beforeEach(() => {
+    src = fs.readFileSync(baileysBackendPath, 'utf-8');
+  });
+
+  it('requestPairingCode is called inside the connection open handler', () => {
+    const openSection = src.substring(
+      src.indexOf("connection === 'open'"),
+      src.indexOf("connection === 'close'"),
+    );
+    expect(openSection).toContain('requestPairingCode');
+  });
+
+  it('requestPairingCode is NOT called outside the connection handler', () => {
+    // The old code had requestPairingCode at the end of connect() outside any handler
+    const afterHandlers = src.substring(src.indexOf("// Message events"));
+    const connectEnd = afterHandlers.substring(0, afterHandlers.indexOf('disconnect'));
+    expect(connectEnd).not.toContain('requestPairingCode');
+  });
+
+  it('requestPairingCode has error handling', () => {
+    const openSection = src.substring(
+      src.indexOf("connection === 'open'"),
+      src.indexOf("connection === 'close'"),
+    );
+    // Should be wrapped in try/catch
+    const pairSection = openSection.substring(openSection.indexOf('requestPairingCode') - 200);
+    expect(pairSection).toContain('catch');
+    expect(pairSection).toContain('Failed to request pairing code');
   });
 });
 
@@ -230,6 +279,29 @@ describe('Issue 3: Dashboard QR polling error handling', () => {
     expect(pinTag).not.toContain('visibility:hidden');
     expect(pinTag).not.toContain('visibility: hidden');
   });
+
+  it('dashboard has QR timeout logic (30s)', () => {
+    expect(dashboardSrc).toContain('WA_QR_TIMEOUT_MS');
+    expect(dashboardSrc).toContain('30000');
+    // Should show timeout message
+    expect(dashboardSrc).toContain('timed out');
+  });
+
+  it('dashboard displays adapter error when present', () => {
+    // renderQrPanel should check data.error
+    expect(dashboardSrc).toContain('data.error');
+    expect(dashboardSrc).toContain('connection failed');
+  });
+
+  it('dashboard captures lastError from poll responses', () => {
+    expect(dashboardSrc).toContain('waLastError');
+    // Should store error from data
+    expect(dashboardSrc).toContain('data.error');
+  });
+
+  it('dashboard has escapeHtml helper for safe error display', () => {
+    expect(dashboardSrc).toContain('function escapeHtml');
+  });
 });
 
 // ── Server-side dashboard auth ───────────────────────────────────
@@ -253,6 +325,64 @@ describe('Server dashboard unlock endpoint', () => {
   it('/dashboard/unlock endpoint has rate limiting', () => {
     expect(serverSrc).toContain('MAX_ATTEMPTS');
     expect(serverSrc).toContain('status(429)');
+  });
+});
+
+// ── Issue 5: Baileys bundled + wizard pre-flight ─────────────────
+
+describe('Issue 5: Baileys as bundled dependency + wizard pre-flight', () => {
+  it('package.json has baileys in optionalDependencies (not peerDependencies)', () => {
+    const pkgPath = path.join(process.cwd(), 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+
+    // Should be in optionalDependencies
+    expect(pkg.optionalDependencies?.baileys).toBeDefined();
+    // Should NOT be in peerDependencies
+    expect(pkg.peerDependencies?.['@whiskeysockets/baileys']).toBeUndefined();
+    expect(pkg.peerDependencies?.baileys).toBeUndefined();
+  });
+
+  it('package.json uses baileys v7 (not @whiskeysockets/baileys v6)', () => {
+    const pkgPath = path.join(process.cwd(), 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const version = pkg.optionalDependencies?.baileys;
+    expect(version).toMatch(/\^7/);
+  });
+
+  it('setup wizard has Baileys pre-flight check', () => {
+    const skillPath = path.join(process.cwd(), '.claude/skills/setup-wizard/skill.md');
+    const skill = fs.readFileSync(skillPath, 'utf-8');
+    expect(skill).toContain('BAILEYS_V7_OK');
+    expect(skill).toContain('BAILEYS_NOT_FOUND');
+    expect(skill).toContain('npm install baileys@latest');
+  });
+
+  it('setup wizard has QR timeout with fallback instructions', () => {
+    const skillPath = path.join(process.cwd(), '.claude/skills/setup-wizard/skill.md');
+    const skill = fs.readFileSync(skillPath, 'utf-8');
+    expect(skill).toContain('TIMEOUT CHECK');
+    expect(skill).toContain('30 seconds');
+    expect(skill).toContain('Do NOT keep waiting silently');
+  });
+});
+
+// ── WhatsApp adapter error reporting ────────────────────────────
+
+describe('WhatsApp adapter error reporting', () => {
+  it('WhatsAppAdapter has lastError field in status', () => {
+    const adapterPath = path.join(process.cwd(), 'src/messaging/WhatsAppAdapter.ts');
+    const src = fs.readFileSync(adapterPath, 'utf-8');
+    expect(src).toContain('lastError: string | null');
+    expect(src).toContain('setLastError');
+  });
+
+  it('/whatsapp/qr endpoint includes error field', () => {
+    const routesPath = path.join(process.cwd(), 'src/server/routes.ts');
+    const src = fs.readFileSync(routesPath, 'utf-8');
+    // Find the qr endpoint and get enough context to include the res.json call
+    const qrStart = src.indexOf("router.get('/whatsapp/qr'");
+    const qrSection = src.substring(qrStart, qrStart + 500);
+    expect(qrSection).toContain('lastError');
   });
 });
 

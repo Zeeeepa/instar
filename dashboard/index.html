@@ -1084,9 +1084,14 @@
     let waQrInterval = null;
     let waQrVisible = false;
     let waConfigured = false;
+    let waQrPollingStarted = 0; // timestamp when polling started
+    const WA_QR_TIMEOUT_MS = 30000; // 30s timeout for QR appearance
+    let waLastError = ''; // last error message for display
 
     function startWaPolling() {
       if (waQrInterval) return;
+      waQrPollingStarted = Date.now();
+      waLastError = '';
       pollWaQr(); // Immediate first poll
       waQrInterval = setInterval(pollWaQr, 3000);
     }
@@ -1120,6 +1125,8 @@
         })
         .then(data => {
           if (!data) return;
+          // Capture any error message from the adapter for display
+          if (data.error) waLastError = data.error;
           updateWaButton(data);
           if (waQrVisible) renderQrPanel(data);
         })
@@ -1187,9 +1194,32 @@
           container.innerHTML = '<p style="color:var(--text-dim)">QR library not loaded</p>';
         }
       } else {
-        msg.textContent = 'WhatsApp status: ' + (data.state || 'disconnected');
-        container.innerHTML = '<p style="color:var(--text-dim)">Waiting for QR code...</p>';
+        const elapsed = Date.now() - waQrPollingStarted;
+        const state = data.state || 'disconnected';
+
+        if (state === 'disconnected' && data.error) {
+          // Terminal error from the adapter — show it directly
+          waLastError = data.error;
+          msg.textContent = 'WhatsApp connection failed';
+          container.innerHTML = '<p style="color:var(--red)">' + escapeHtml(data.error) + '</p>' +
+            '<p style="color:var(--text-dim);margin-top:8px">Check server logs for details. You may need to upgrade Baileys: <code>npm install baileys@latest</code></p>';
+        } else if (elapsed > WA_QR_TIMEOUT_MS && state !== 'connected') {
+          // Timeout — QR never appeared
+          msg.textContent = 'WhatsApp: QR code generation timed out';
+          container.innerHTML = '<p style="color:var(--red)">No QR code received after ' + Math.round(elapsed / 1000) + 's.</p>' +
+            '<p style="color:var(--text-dim);margin-top:8px">This usually means Baileys cannot connect to WhatsApp. Check server logs for errors.</p>' +
+            (waLastError ? '<p style="color:var(--red);margin-top:4px">' + escapeHtml(waLastError) + '</p>' : '');
+        } else {
+          msg.textContent = 'WhatsApp status: ' + state;
+          container.innerHTML = '<p style="color:var(--text-dim)">Waiting for QR code...</p>';
+        }
       }
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
     }
 
     // ── Keyboard shortcuts ───────────────────────────────────

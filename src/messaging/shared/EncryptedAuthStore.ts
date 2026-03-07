@@ -147,16 +147,15 @@ export async function useEncryptedAuthState(authDir: string, passphrase?: string
   state: any;
   saveCreds: () => Promise<void>;
 }> {
-  // Dynamic import — Baileys is a peer dependency
-  // Try v6 (@whiskeysockets/baileys) first, then v7 (baileys)
-  // @ts-expect-error — Baileys may not be installed
-  let baileys = await import('@whiskeysockets/baileys').catch(() => null);
+  // Dynamic import — Baileys is an optional dependency
+  // Try v7 (baileys) first (preferred), then v6 (@whiskeysockets/baileys, deprecated)
+  let baileys = await import('baileys').catch(() => null) as any;
   if (!baileys) {
-    // @ts-expect-error — try v7 package name
-    baileys = await import('baileys').catch(() => null);
+    // @ts-expect-error — try deprecated v6 package name
+    baileys = await import('@whiskeysockets/baileys').catch(() => null);
   }
   if (!baileys) {
-    throw new Error('Baileys is not installed. Run: npm install @whiskeysockets/baileys');
+    throw new Error('Baileys is not installed. Run: npm install baileys');
   }
 
   const { initAuthCreds, proto, BufferJSON } = baileys;

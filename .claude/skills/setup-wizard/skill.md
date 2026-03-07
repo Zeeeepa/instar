@@ -1224,6 +1224,19 @@ Present:
 
 **If they choose Baileys:**
 
+**Pre-flight check (MANDATORY before proceeding):** Verify Baileys is actually installed and can be imported:
+
+```bash
+# Check if baileys v7 is available (preferred)
+node -e "require('baileys'); console.log('OK')" 2>/dev/null && echo "BAILEYS_V7_OK" || \
+node -e "require('@whiskeysockets/baileys'); console.log('OK')" 2>/dev/null && echo "BAILEYS_V6_OK" || \
+echo "BAILEYS_NOT_FOUND"
+```
+
+- If `BAILEYS_V7_OK` → proceed normally
+- If `BAILEYS_V6_OK` → warn: "Baileys v6 is deprecated and may not work with WhatsApp's current protocol. I'll install v7 for better compatibility." Then install: `npm install baileys@latest` in the agent directory.
+- If `BAILEYS_NOT_FOUND` → install it: `npm install baileys@latest` in the agent directory. Verify installation succeeded before proceeding. If install fails, tell the user and offer Telegram as a fallback.
+
 > Great — Baileys connects through WhatsApp Web, just like scanning a QR code.
 >
 > I need your phone number to authorize messages. Only messages from this number will be processed — everything else is ignored.
@@ -1318,12 +1331,30 @@ Take a snapshot to find the PIN input field, enter the PIN, and click Connect/Su
 
 After authenticating, look for a "WhatsApp" button in the dashboard header. Click it to open the QR panel. The dashboard fetches `/whatsapp/qr` with the auth token internally and renders the QR code using the qrcode.js library.
 
-**Step 4: Wait for QR to appear**
+**Step 4: Wait for QR to appear (with timeout)**
 
 The WhatsApp adapter may take a few seconds to generate the first QR code after server start. If the QR panel shows "disconnected" or no QR:
 - Wait 5 seconds and refresh the panel (click the WhatsApp button again)
 - Retry up to 6 times (30 seconds total)
 - The Baileys adapter needs time to initialize and receive the first QR from WhatsApp servers
+
+**TIMEOUT CHECK (MANDATORY):** If no QR code appears within 30 seconds, check the status API for errors:
+
+```bash
+curl -s -H "Authorization: Bearer <AUTH_TOKEN>" http://localhost:<PORT>/whatsapp/qr
+```
+
+If the response contains `"error"` or the state is `"disconnected"`, WhatsApp pairing has failed. **Do NOT keep waiting silently.** Tell the user immediately:
+
+> "WhatsApp couldn't connect — the adapter is reporting an error. This is usually a Baileys version issue."
+
+Then check if the error mentions 405, "Connection Failure", or version issues. If so:
+1. Stop the server
+2. Install/upgrade Baileys v7: `npm install baileys@latest` in the agent directory
+3. Clear auth state: `rm -rf <project_dir>/.instar/whatsapp-auth/`
+4. Restart server and retry QR
+
+If it still fails after one retry, explain the situation honestly and offer Telegram as a reliable alternative. Do NOT loop endlessly.
 
 Once the QR is visible, tell the user:
 

@@ -9,7 +9,8 @@
  * - Message deduplication on reconnect
  * - Auth state persistence (atomic writes)
  *
- * Baileys is a peer dependency — only imported when WhatsApp is configured.
+ * Baileys is an optional dependency — only imported when WhatsApp is configured.
+ * Prefers v7 (`baileys` package) over deprecated v6 (`@whiskeysockets/baileys`).
  * This module provides a clean interface for the WhatsAppAdapter to consume
  * without knowing Baileys internals.
  */
@@ -77,28 +78,28 @@ export class BaileysBackend {
   /** Start the Baileys connection. */
   async connect(): Promise<void> {
     try {
-      // Dynamic import — Baileys is a peer/optional dependency
-      // Try v6 (@whiskeysockets/baileys) first, then v7 (baileys)
-      // @ts-expect-error — Baileys may not be installed; handled gracefully below
-      let baileys = await import('@whiskeysockets/baileys').catch(() => null);
+      // Dynamic import — Baileys is an optional dependency
+      // Try v7 (baileys) first (preferred), then v6 (@whiskeysockets/baileys, deprecated)
+      let baileys = await import('baileys').catch(() => null) as any;
       if (!baileys) {
-        // @ts-expect-error — try v7 package name
-        baileys = await import('baileys').catch(() => null);
+        // @ts-expect-error — try deprecated v6 package name
+        baileys = await import('@whiskeysockets/baileys').catch(() => null);
       }
       if (!baileys) {
         throw new Error(
-          'Baileys is not installed. Run: npm install @whiskeysockets/baileys\n' +
-          'Baileys is a peer dependency required for WhatsApp Web support.',
+          'Baileys is not installed. Run: npm install baileys\n' +
+          'Baileys is required for WhatsApp Web support.',
         );
       }
       const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = baileys;
 
       const { state, saveCreds } = await useMultiFileAuthState(this.config.authDir);
 
+      // Note: printQRInTerminal is deprecated in v7. QR codes are captured
+      // via the connection.update event handler below.
       this.socket = makeWASocket({
         auth: state,
         markOnlineOnConnect: this.config.markOnline,
-        printQRInTerminal: this.config.authMethod === 'qr',
       });
 
       // Auth state persistence
@@ -146,32 +147,60 @@ export class BaileysBackend {
           };
           this.adapter.setBackendCapabilities(capabilities);
           this.handlers.onConnected(this.phoneNumber ?? 'unknown');
+
+          // Pairing code auth — request AFTER connection is open
+          // (moved here from below to ensure socket is in a stable state)
+          if (this.config.authMethod === 'pairing-code' && this.config.pairingPhoneNumber && !this.phoneNumber) {
+            try {
+              const code = await this.socket.requestPairingCode(this.config.pairingPhoneNumber);
+              this.handlers.onPairingCode(code);
+            } catch (pairErr) {
+              console.error('[baileys] Failed to request pairing code:', pairErr);
+              this.handlers.onError(new Error(
+                `Failed to request pairing code: ${pairErr instanceof Error ? pairErr.message : pairErr}`,
+              ));
+            }
+          }
         }
 
         if (connection === 'close') {
           this.connected = false;
-          const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-          const loggedOut = statusCode === DisconnectReason.loggedOut;
+
+          // Extract status code — Baileys v6 uses Boom errors with .output.statusCode,
+          // v7 may use plain Error objects. Check both patterns.
+          const err = lastDisconnect?.error as any;
+          const statusCode = err?.output?.statusCode  // Boom error (v6)
+            ?? err?.statusCode                         // Plain error with statusCode
+            ?? err?.data?.reason;                      // v7 data.reason field
+          const errorMessage = err?.message ?? '';
+          const loggedOut = statusCode === DisconnectReason?.loggedOut
+            || statusCode === 401;
+
+          // Detect terminal failures that should NOT trigger reconnect
+          const isTerminalFailure = loggedOut
+            || statusCode === 405
+            || statusCode === 403
+            || errorMessage.includes('405')
+            || errorMessage.includes('Connection Failure');
 
           if (loggedOut) {
             // Session expired — need new QR scan
             this.adapter.setConnectionState('disconnected');
             this.handlers.onDisconnected('logged-out', false);
             console.log('[baileys] Session expired. Delete auth state and restart to re-authenticate.');
-          } else if (statusCode === 405) {
-            // Registration endpoint rejected — likely Baileys version incompatibility
-            console.error('[baileys] WhatsApp registration failed with HTTP 405 (Method Not Allowed).');
-            console.error('[baileys] This usually means the Baileys version is outdated and WhatsApp has changed its protocol.');
-            console.error('[baileys] Try upgrading: npm install @whiskeysockets/baileys@latest');
-            console.error('[baileys] Or try the new v7 package: npm install baileys@latest');
+          } else if (isTerminalFailure) {
+            // Registration/connection failure — likely Baileys version incompatibility or protocol change
+            const reason = statusCode === 405 || errorMessage.includes('405')
+              ? 'HTTP 405 (Method Not Allowed)'
+              : `Connection Failure (${statusCode ?? errorMessage})`;
+            const errorMsg = `WhatsApp connection failed: ${reason}. Baileys version may be outdated. Try: npm install baileys@latest`;
+            console.error(`[baileys] ${errorMsg}`);
             this.adapter.setConnectionState('disconnected');
-            this.handlers.onError(new Error(
-              'WhatsApp registration failed (HTTP 405). Baileys version may be outdated. ' +
-              'Try: npm install @whiskeysockets/baileys@latest',
-            ));
-            // Don't reconnect — 405 won't resolve by retrying
+            this.adapter.setLastError(errorMsg);
+            this.handlers.onError(new Error(errorMsg));
+            // Don't reconnect — terminal failures won't resolve by retrying
           } else {
-            // Attempt reconnection
+            // Transient failure — attempt reconnection
             this.scheduleReconnect();
           }
         }
@@ -210,12 +239,6 @@ export class BaileysBackend {
           );
         }
       });
-
-      // Pairing code auth
-      if (this.config.authMethod === 'pairing-code' && this.config.pairingPhoneNumber) {
-        const code = await this.socket.requestPairingCode(this.config.pairingPhoneNumber);
-        this.handlers.onPairingCode(code);
-      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.handlers.onError(error);

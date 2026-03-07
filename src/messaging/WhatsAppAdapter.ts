@@ -127,6 +127,7 @@ export interface WhatsAppStatus {
   phoneNumber: string | null;
   reconnectAttempts: number;
   lastConnected: string | null;
+  lastError: string | null;
   pendingMessages: number;
   stalledChannels: number;
   registeredSessions: number;
@@ -147,6 +148,7 @@ export class WhatsAppAdapter implements MessagingAdapter {
   private phoneNumber: string | null = null;
   private reconnectAttempts = 0;
   private lastConnected: string | null = null;
+  private lastError: string | null = null;
 
   // Shared infrastructure
   private logger: MessageLogger;
@@ -272,9 +274,15 @@ export class WhatsAppAdapter implements MessagingAdapter {
     if (state === 'connected') {
       this.lastConnected = new Date().toISOString();
       this.reconnectAttempts = 0;
+      this.lastError = null;
       this.setQrCode(null); // QR no longer needed
       await this.flushOutboundQueue();
     }
+  }
+
+  /** Record the last error message for status reporting. */
+  setLastError(message: string): void {
+    this.lastError = message;
   }
 
   // ── MessagingAdapter interface ──────────────────────────────
@@ -700,6 +708,7 @@ export class WhatsAppAdapter implements MessagingAdapter {
       phoneNumber: this.phoneNumber,
       reconnectAttempts: this.reconnectAttempts,
       lastConnected: this.lastConnected,
+      lastError: this.lastError,
       pendingMessages: detectorStatus.pendingStalls,
       stalledChannels: detectorStatus.pendingPromises,
       registeredSessions: this.registry.size,

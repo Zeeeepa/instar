@@ -22,7 +22,7 @@
 
 > **This is power-user infrastructure.** Instar gives Claude Code full autonomous access to your machine -- no permission prompts, no sandbox. It's built for developers who want a genuine AI partner, not a guarded assistant. If that sounds like too much trust, it probably isn't for you. If it sounds like exactly what you've been waiting for, read on.
 
-Instar gives Claude Code agents a **persistent body** -- a server that runs 24/7, a scheduler that executes jobs on cron, messaging integrations, relationship tracking, and the self-awareness to grow their own capabilities.
+Instar gives Claude Code agents a **persistent body** -- a server that runs 24/7, a scheduler that executes jobs on cron, messaging via Telegram and WhatsApp, relationship tracking, and the self-awareness to grow their own capabilities.
 
 Named after the developmental stages between molts in arthropods, where each instar is more developed than the last.
 
@@ -30,7 +30,7 @@ Named after the developmental stages between molts in arthropods, where each ins
 
 **Without Instar**, Claude Code is a CLI tool. You open a terminal, type a prompt, get a response, close the terminal. No persistence. No scheduling. No way to reach you. Every session starts from zero.
 
-**With Instar**, Claude Code becomes your partner. It runs in the background, checks your email on a schedule, monitors your services, messages you on Telegram when something needs attention, remembers who it's talked to, and builds new capabilities when you ask for something it can't do yet. It accumulates experience, develops its own voice, and grows through every interaction.
+**With Instar**, Claude Code becomes your partner. It runs in the background, checks your email on a schedule, monitors your services, messages you on Telegram or WhatsApp when something needs attention, remembers who it's talked to, and builds new capabilities when you ask for something it can't do yet. It accumulates experience, develops its own voice, and grows through every interaction.
 
 The difference isn't features. It's a shift in what Claude Code *is* -- from a tool you use to an agent that works alongside you. This is the cutting edge of what's possible with AI agents today -- not a demo, not a toy, but genuine autonomous partnership between a human and an AI.
 
@@ -42,12 +42,12 @@ One command gets you from zero to talking with your AI partner:
 npx instar
 ```
 
-A guided setup handles the rest — identity, Telegram connection, server. Within minutes, you're talking to your partner from your phone, anywhere. That's the intended experience: **you talk, your partner handles everything else.**
+The guided setup wizard handles the rest — discovers your environment, configures messaging (Telegram and/or WhatsApp), sets up identity files, and gets your agent running. Within minutes, you're talking to your partner from your phone, anywhere. That's the intended experience: **you talk, your partner handles everything else.**
 
 ### Two configurations
 
-- **General Agent** — A personal AI partner on your computer. Runs in the background, handles scheduled tasks, messages you on Telegram proactively, and grows through experience.
-- **Project Agent** — A partner embedded in your codebase. Monitors, builds, maintains, and messages you on Telegram — the same two-way communication as a general agent, scoped to your project.
+- **General Agent** — A personal AI partner on your computer. Runs in the background, handles scheduled tasks, messages you on Telegram or WhatsApp proactively, and grows through experience.
+- **Project Agent** — A partner embedded in your codebase. Monitors, builds, maintains, and messages you — the same two-way communication as a general agent, scoped to your project.
 
 Once running, the infrastructure is invisible. Your partner manages its own jobs, health checks, evolution, and self-maintenance. You just talk to it.
 
@@ -127,6 +127,7 @@ instar feedback --type bug --title "Session timeout" --description "Details..."
 - **[Job Scheduler](#job-scheduler)** -- Cron-based task execution with priority levels, model tiering, and quota awareness.
 - **[Identity System](#identity-that-survives-context-death)** -- AGENT.md + USER.md + MEMORY.md with hooks that enforce continuity across compaction.
 - **[Telegram Integration](#telegram-integration)** -- Two-way messaging. Each job gets its own topic. Your group becomes a living dashboard.
+- **[WhatsApp Integration](#whatsapp-integration)** -- Two-way WhatsApp messaging with typing indicators, read receipts, and QR code pairing.
 - **[Relationship Tracking](#relationships-as-fundamental-infrastructure)** -- Cross-platform identity resolution, significance scoring, context injection.
 - **[Evolution System](#evolution-system)** -- Four subsystems for structured growth: proposal queue, learning registry, gap tracking, and commitment follow-through.
 - **[Self-Evolution](#self-evolution)** -- The agent modifies its own jobs, hooks, skills, and infrastructure. It builds what it needs.
@@ -135,6 +136,12 @@ instar feedback --type bug --title "Session timeout" --description "Details..."
 - **[External Operation Safety](#external-operation-safety)** -- LLM-supervised safety gate for external service calls. Adaptive trust that evolves with track record.
 - **[Intent Alignment](#intent-alignment)** -- Decision journaling, drift detection, and organizational intent constraints. The agent stays on track.
 - **[Multi-Machine](#multi-machine)** -- Run your agent across multiple computers with encrypted sync, automatic failover, and cryptographic machine identity.
+- **[Inter-Agent Messaging](#inter-agent-messaging)** -- Cross-agent communication with Ed25519-signed messages and delivery guarantees.
+- **[Playbook System](#playbook-system)** -- Adaptive context engineering for complex workflows that survives compaction.
+- **[Autonomy Profiles](#autonomy-profiles)** -- Configurable autonomy levels with trust elevation based on track record.
+- **[Unanswered Message Detection](#unanswered-message-detection)** -- Detects messages dropped by context compaction and re-surfaces them.
+- **[Temporal Coherence](#temporal-coherence)** -- Detects stale assumptions and triggers re-evaluation across long sessions.
+- **[User-Agent Topology](#user-agent-topology)** -- Multi-user, multi-agent organizational structures with shared governance.
 - **[Coherence System](#coherence-system)** -- Project-aware spatial reasoning and pre-action verification. The agent knows where it is and checks before acting.
 - **[Capability Discovery](#capability-discovery)** -- Agents know all their capabilities from the moment they start. Context-triggered feature suggestions.
 - **[Innovation Detection](#innovation-detection)** -- Agents detect when user-built features could benefit all Instar agents and submit improvement feedback.
@@ -174,7 +181,7 @@ Browse all skills: [agent-skills.md/authors/sagemindai](https://agent-skills.md/
 ## How It Works
 
 ```
-You (Telegram / Terminal)
+You (Telegram / WhatsApp / Terminal)
          │
     conversation
          │
@@ -195,59 +202,37 @@ Each session is a **real Claude Code process** with extended thinking, native to
 
 ## Why Instar (vs OpenClaw)
 
-If you're coming from OpenClaw, NanoClaw, or similar projects affected by Anthropic's OAuth policy change -- Instar is architecturally different.
+OpenClaw is the most popular AI agent framework -- 250k+ GitHub stars, 22+ messaging channels, voice, device apps, thousands of community skills, and now backed by an open-source foundation. It's an excellent project.
 
-### ToS-compliant by design
+**Instar is built for a different kind of user: people who love Claude Code and want more of it.**
 
-Anthropic's policy: OAuth tokens are for Claude Code and claude.ai only. Projects that extracted tokens to power their own runtimes violated this.
+### The core difference
 
-**Instar spawns the actual Claude Code CLI.** Every session is a real Claude Code process. We never extract, proxy, or spoof OAuth tokens. We also support [API keys](https://console.anthropic.com/) for production use.
+OpenClaw wraps multiple AI models behind a gateway. Instar spawns **real Claude Code sessions** -- with extended thinking, native tools, sub-agents, MCP servers, hooks, and skills. Every feature Anthropic ships, your agent gets automatically.
 
-### Different category, different strengths
+If you want AI on 20+ platforms with voice and device apps, OpenClaw is the better choice. If you want a Claude Code agent that runs autonomously, heals itself, remembers everything, and grows over time -- that's Instar.
 
-| | OpenClaw | Instar |
-|---|---|---|
-| **What it is** | AI assistant framework | Autonomy infrastructure |
-| **Runtime** | Pi SDK (embedded agent runtime) | Claude Code (full dev environment) |
-| **Sessions** | Multi-session gateway | Multiple parallel Claude Code instances |
-| **Identity** | SOUL.md (co-created, agent-editable) | Multi-file + behavioral hooks + compaction recovery |
-| **Memory** | Hybrid BM25 + vector search with temporal decay | Relationship-centric + per-topic conversational memory |
-| **Messaging** | 20+ channels | Telegram (Slack/Discord planned) |
-| **Voice** | ElevenLabs TTS, talk mode, voice wake | -- |
-| **Device apps** | macOS, Android, iOS (internal preview) | -- |
-| **Sandbox** | Docker 3×3 matrix + security audit CLI | External operation safety gate + dangerous command guards |
-| **Model providers** | 28+ (Anthropic, OpenAI, Gemini, local models, etc.) | Claude (via Claude Code) |
-| **Self-evolution** | SOUL.md + workspace file updates | Full infrastructure self-modification + evolution system |
-| **Self-healing** | Loop detection | LLM-powered stall triage, session monitoring, promise tracking |
-| **Intent alignment** | -- | Decision journal, drift detection, organizational constraints |
-| **Multi-machine** | -- | Encrypted sync, automatic failover, cryptographic identity |
-| **ToS status** | API keys + OAuth (OAuth path restricted by Anthropic) | Spawns real Claude Code (compliant) |
+### What makes Instar different
 
-**OpenClaw optimizes for reach** -- AI across every messaging platform and device. **Instar optimizes for depth** -- an agent that is coherent, self-healing, aligned, and evolving.
+**Your agent never forgets.** Identity hooks guarantee continuity across session restarts and context compaction. Conversational memory persists per-topic with search and summaries. Relationships are tracked across platforms. This isn't "the model tries to remember" -- the infrastructure enforces it.
+
+**Your agent heals itself.** Built-in LLM-powered stall detection diagnoses stuck sessions and recovers automatically. Promise tracking catches when your agent says "working on it" but goes quiet. No silent failures -- ever.
+
+**Your agent evolves.** Dedicated evolution infrastructure: proposal queues, learning registries, capability gap tracking. The agent builds its own tools, modifies its own config, and improves through structured developmental stages.
+
+**Your agent stays aligned.** Decision journaling tracks what your agent decides and why. Drift detection catches when behavior shifts from stated purpose. No other agent framework measures alignment over time.
+
+**Your agents coordinate.** Cross-machine messaging with cryptographic signatures, delivery guarantees, and automatic failover. Multiple agents working together without you in the middle.
+
+**Your agent is safe to trust.** An LLM-supervised safety gate evaluates every external service call. Trust is earned per service, not assumed. Emergency stop always available. Born from a real incident where an AI deleted a user's emails.
 
 ### Where OpenClaw leads
 
-20+ messaging channels with deep per-channel config. Docker sandboxing with [security audit CLI](https://docs.openclaw.ai/gateway/security). Voice/TTS via ElevenLabs with voice wake across devices. Multi-agent routing with deterministic priority hierarchy. 28+ model providers with auth rotation and failover. ClawHub marketplace with thousands of community-built skills. Companion apps on macOS, Android, and iOS (internal preview). These are real, mature features backed by a large community.
+22+ messaging channels. Voice with ElevenLabs and phone calls. Device apps on macOS and Android. 28+ model providers. Docker sandboxing. 5,000+ community skills on ClawHub. A massive open-source community backed by a foundation with OpenAI sponsorship. If breadth and ecosystem scale matter most to you, OpenClaw is remarkable.
 
-### Where Instar leads
+### Who Instar is for
 
-**Runtime depth.** Each session is a full Claude Code instance -- extended thinking, native tools, sub-agents, MCP servers. Not an API wrapper. Every feature Anthropic adds to Claude Code, Instar agents get automatically.
-
-**Self-healing agent.** LLM-powered stall detection and recovery, session health monitoring, promise tracking, and loud degradation reporting. The agent doesn't just run -- it monitors itself and recovers from failures on its own.
-
-**Conversational continuity.** Per-topic SQLite memory with full-text search and rolling summaries. After compaction or session restart, the agent picks up exactly where it left off with full conversation context.
-
-**External operation safety.** An LLM-supervised gate that evaluates every external service call before execution. Adaptive trust that evolves per service. Emergency stop capability. Born from a real incident -- not theoretical.
-
-**Intent alignment.** Decision journaling, drift detection, organizational constraints. No other agent framework tracks whether the agent is staying aligned with its purpose over time.
-
-**Identity infrastructure.** Hooks re-inject identity on session start, after compaction, and before messaging. The agent doesn't try to remember who it is -- the infrastructure guarantees it. Structure over willpower.
-
-**Multi-machine.** Run across multiple computers with Ed25519 cryptographic identity, encrypted sync, and automatic failover. Your agent works wherever you are.
-
-Different tools for different needs. Different bets on different futures.
-
-> Full comparison: [positioning-vs-openclaw.md](docs/positioning-vs-openclaw.md)
+Developers who already use Claude Code and want it to become a persistent, autonomous partner. People who value depth over breadth -- an agent that is genuinely coherent, self-healing, and growing, rather than one that's available on every platform. If you want more Claude Code, not a different runtime, Instar is what you're looking for.
 
 ---
 
@@ -329,6 +314,10 @@ Two-way messaging via Telegram forum topics. Each topic maps to a Claude session
 - Sessions auto-respawn with conversation history when they expire
 - Every scheduled job gets its own topic -- your group becomes a **living dashboard**
 
+### WhatsApp Integration
+
+WhatsApp messaging alongside Telegram -- your agent meets you where you already are. Full two-way messaging with typing indicators, read receipts, and acknowledgment reactions. QR code pairing from the web dashboard for remote setup. The setup wizard handles onboarding automatically.
+
 ### Lifeline
 
 The Lifeline is a persistent Telegram connection that supervises your agent's server. It runs outside the server process, so it can detect crashes and recover automatically.
@@ -406,7 +395,7 @@ Your agent recovers from problems on its own. No silent failures, no stale sessi
 - **Stall detection** -- If a Telegram message goes unanswered for 2+ minutes, an LLM-powered triage nurse activates: diagnoses the problem, treats it (nudge, interrupt, or restart), verifies recovery, and escalates if needed
 - **Session monitoring** -- Polls all active sessions every 60 seconds. Detects dead, unresponsive, and idle sessions and coordinates automatic recovery
 - **Promise tracking** -- When the agent says "working on it" or "give me a minute," a timer starts. If no follow-up arrives, the agent is nudged and the user is notified
-- **Loud degradation** -- When a fallback activates (e.g., LLM provider unavailable, file write failed), it's logged, reported, and surfaced -- never silently swallowed. 142 catch blocks audited with zero new silent fallbacks allowed
+- **Loud degradation** -- When a fallback activates (e.g., LLM provider unavailable, file write failed), it's logged, reported, and surfaced -- never silently swallowed. All catch blocks audited with zero silent fallbacks allowed
 
 The agent doesn't just run. It monitors itself, recovers from failures, and tells you when something is degraded instead of quietly breaking.
 
@@ -450,6 +439,32 @@ Run your agent across multiple computers -- laptop at the office, desktop at hom
 - **Encrypted sync** -- Agent state synchronized via git with commit signing. Secrets encrypted with AES-256-GCM at rest, forward secrecy on the wire
 - **Automatic failover** -- Distributed heartbeat coordination with split-brain detection. If the primary machine goes offline, the standby takes over
 - **Write authority** -- Primary-machine-writes-only enforcement prevents conflicts. Secondary machines queue changes until they can sync
+
+### Inter-Agent Messaging
+
+Cross-agent communication with Ed25519-signed messages. Same-machine routing via drop directories, cross-machine routing via git-sync transport. Delivery retry with TTL expiry, dead-letter queues, thread persistence, and on-demand session spawning. Agents coordinate directly without human relay.
+
+Key endpoints: `GET /messages/inbox`, `GET /messages/outbox`, `GET /messages/:id`, `GET /messages/dead-letter`.
+
+### Playbook System
+
+Adaptive context engineering for complex workflows. Playbooks carry structured domain knowledge that survives context compaction and session boundaries. Agents load relevant playbooks based on the task at hand, ensuring they have the right expertise without bloating every session's context.
+
+### Autonomy Profiles
+
+Configurable autonomy levels from supervised to fully autonomous. Trust elevation rewards consistent success with increasing independence -- new services start supervised, proven reliability earns autonomy. Emergency stop always available.
+
+### Unanswered Message Detection
+
+When context compaction drops a user message mid-session, the agent detects the gap and re-surfaces the unanswered message. No more silent drops during long sessions -- every message gets a response.
+
+### Temporal Coherence
+
+Detects when the agent is operating with outdated perspectives. The TemporalCoherenceChecker identifies stale assumptions and triggers re-evaluation, keeping the agent's worldview current across long-running sessions.
+
+### User-Agent Topology
+
+Multi-user, multi-agent organizational structures. Define which users can interact with which agents, organizational constraints, and shared rules. Supports complex setups where multiple people work with multiple agents under a shared governance model.
 
 ### Coherence System
 

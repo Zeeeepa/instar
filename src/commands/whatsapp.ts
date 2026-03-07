@@ -14,20 +14,19 @@ import { isEncryptedFile } from '../messaging/shared/EncryptedAuthStore.js';
  * npx cache directory, not the user's project. Dynamic import() correctly searches
  * the full module resolution chain including the user's node_modules.
  *
- * Supports both v6 (@whiskeysockets/baileys) and v7 (baileys) package names.
+ * Prefers v7 (baileys) over deprecated v6 (@whiskeysockets/baileys).
  */
 async function isBaileysInstalled(): Promise<{ installed: boolean; packageName: string | null }> {
-  // Try v6 first (current recommended)
+  // Try v7 first (preferred — v6 is deprecated and has protocol issues)
   try {
-    // @ts-expect-error — Baileys is a peer dependency, may not be installed
-    await import('@whiskeysockets/baileys');
-    return { installed: true, packageName: '@whiskeysockets/baileys' };
+    await import('baileys');
+    return { installed: true, packageName: 'baileys' };
   } catch {
-    // Try v7 package name
+    // Fall back to deprecated v6 package name
     try {
-      // @ts-expect-error — Baileys v7 uses different package name
-      await import('baileys');
-      return { installed: true, packageName: 'baileys' };
+      // @ts-expect-error — Baileys v6 uses different package name
+      await import('@whiskeysockets/baileys');
+      return { installed: true, packageName: '@whiskeysockets/baileys' };
     } catch {
       return { installed: false, packageName: null };
     }

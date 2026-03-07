@@ -2241,6 +2241,7 @@ export function createRoutes(ctx: RouteContext): Router {
       qr: ctx.whatsapp.getQrCode(),
       state: status.state,
       phoneNumber: status.phoneNumber,
+      error: status.lastError,
     });
   });
 
