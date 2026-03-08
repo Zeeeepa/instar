@@ -22,6 +22,7 @@ function createAdapter(configOverrides: Record<string, unknown> = {}): WhatsAppA
       backend: 'baileys',
       authorizedNumbers: ['+14155552671'],
       requireConsent: false,
+      prefixEnabled: false,
       ...configOverrides,
     },
     tmpDir,

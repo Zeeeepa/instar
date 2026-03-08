@@ -62,6 +62,7 @@ beforeAll(async () => {
       backend: 'baileys',
       authorizedNumbers: ['+14155552671', '+447911123456'],
       requireConsent: false,
+      prefixEnabled: false,
       stallTimeoutMinutes: 5,
       ackReactionEmoji: '👀',
     },

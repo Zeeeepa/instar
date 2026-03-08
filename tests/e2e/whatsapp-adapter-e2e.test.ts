@@ -48,6 +48,7 @@ describe('Phase 2: WhatsApp Adapter — E2E', () => {
         authorizedNumbers: ['+14155552671', '+447911123456', '+5511999998888'],
         stallTimeoutMinutes: 1,
         requireConsent: false, // Disable consent for E2E tests (tested separately)
+        prefixEnabled: false, // Disable prefix for routing tests (tested separately)
         ...overrides,
       },
       tmpDir,

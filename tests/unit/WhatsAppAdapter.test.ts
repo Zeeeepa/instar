@@ -22,6 +22,7 @@ describe('WhatsAppAdapter', () => {
         authorizedNumbers: ['+14155552671', '+447911123456'],
         stallTimeoutMinutes: 5,
         requireConsent: false, // Disable consent for unit tests (tested separately)
+        prefixEnabled: false, // Disable prefix for unit tests (tested separately)
         ...overrides,
       },
       tmpDir,

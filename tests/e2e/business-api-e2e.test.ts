@@ -42,6 +42,7 @@ function createTestAdapter(tmpDir: string, overrides: Record<string, unknown> = 
       authorizedNumbers: ['+14155552671', '+447911123456'],
       stallTimeoutMinutes: 1,
       requireConsent: false,
+      prefixEnabled: false,
       businessApi: {
         phoneNumberId: '123456789',
         accessToken: 'test-token',
