@@ -1,26 +1,19 @@
 # Upgrade Guide — vNEXT
 
 <!-- bump: patch -->
-<!-- Valid values: patch, minor, major -->
-<!-- patch = bug fixes, refactors, test additions, doc updates -->
-<!-- minor = new features, new APIs, new capabilities (backwards-compatible) -->
-<!-- major = breaking changes to existing APIs or behavior -->
 
 ## What Changed
 
-<!-- Describe what changed technically. What new features, APIs, behavioral changes? -->
-<!-- Write this for the AGENT — they need to understand the system deeply. -->
+Fixed session resume reliability. The LLM resume validator was rejecting all resume attempts because it only sampled the last 4KB of Claude JSONL files — which typically contain progress/system entries without readable content. Now samples from both HEAD (first 16KB, containing the initial prompt) and TAIL (last 32KB), extracting from multiple entry types (message.content, type-based entries, slug fields).
+
+Additionally, resume UUIDs from the TopicResumeMap (authoritative source — saved at session kill time for the specific topic) now skip LLM validation entirely, since the mapping is already guaranteed correct.
 
 ## What to Tell Your User
 
-<!-- Write talking points the agent should relay to their user. -->
-<!-- This should be warm, conversational, user-facing — not a changelog. -->
-<!-- Focus on what THEY can now do, not internal plumbing. -->
-
-- **[Feature name]**: "[Brief, friendly description of what this means for the user]"
+- **Session resume works now**: When sessions are killed for inactivity and you send a new message, the session will properly resume where it left off instead of starting fresh every time.
 
 ## Summary of New Capabilities
 
 | Capability | How to Use |
 |-----------|-----------|
-| [Capability] | [Endpoint, command, or "automatic"] |
+| Reliable session resume | Automatic — sessions killed for inactivity will resume via `--resume` when a new message arrives |
