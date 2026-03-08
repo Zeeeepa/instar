@@ -546,4 +546,142 @@ describe('WhatsApp Message Routing E2E', () => {
       expect(res.body.qr).toBeNull(); // Connected, no QR needed
     });
   });
+
+  // ── Dynamic Version Fetching & Platform Override ──────────────
+
+  describe('BaileysBackend — version & platform management', () => {
+    const baileysBackendSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/messaging/backends/BaileysBackend.ts'),
+      'utf-8',
+    );
+
+    it('should attempt to fetch latest WA Web version dynamically', () => {
+      // Verify fetchLatestWaWebVersion is destructured from baileys import
+      expect(baileysBackendSrc).toContain('fetchLatestWaWebVersion');
+      // Verify it's called during connect
+      expect(baileysBackendSrc).toMatch(/fetchLatestWaWebVersion\s*\(/);
+    });
+
+    it('should fall back gracefully if version fetch fails', () => {
+      // Verify there's a try/catch around the version fetch
+      expect(baileysBackendSrc).toContain('Could not fetch latest WA version');
+    });
+
+    it('should pass version to makeWASocket when available', () => {
+      // Verify version is spread into socket config
+      expect(baileysBackendSrc).toMatch(/version\s*\?\s*\{\s*version\s*\}/);
+    });
+
+    it('should use config version override if provided', () => {
+      // Verify config.version is checked first
+      expect(baileysBackendSrc).toContain('this.config.version');
+    });
+
+    it('should default browser to Mac OS / Chrome (MACOS platform)', () => {
+      // Default browser must map to MACOS platform, not WEB
+      expect(baileysBackendSrc).toContain("['Mac OS', 'Chrome', '14.4.1']");
+    });
+
+    it('should allow browser config override', () => {
+      // Verify config.browser is used
+      expect(baileysBackendSrc).toContain('this.config.browser');
+    });
+
+    it('should pass browser to makeWASocket', () => {
+      // Verify browser is in the socket config
+      const socketConfigMatch = baileysBackendSrc.match(/makeWASocket\(\{[\s\S]*?browser[\s\S]*?\}\)/);
+      expect(socketConfigMatch).not.toBeNull();
+    });
+  });
+
+  // ── BaileysConfig — version & browser fields ──────────────
+
+  describe('BaileysConfig — version & browser type definitions', () => {
+    const adapterSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/messaging/WhatsAppAdapter.ts'),
+      'utf-8',
+    );
+
+    it('should define version field in BaileysConfig', () => {
+      expect(adapterSrc).toMatch(/version\?\s*:\s*\[number,\s*number,\s*number\]/);
+    });
+
+    it('should define browser field in BaileysConfig', () => {
+      expect(adapterSrc).toMatch(/browser\?\s*:\s*\[string,\s*string,\s*string\]/);
+    });
+
+    it('should wire version through getBaileysConfig()', () => {
+      expect(adapterSrc).toMatch(/version:\s*bc\.version/);
+    });
+
+    it('should wire browser through getBaileysConfig()', () => {
+      expect(adapterSrc).toMatch(/browser:\s*bc\.browser/);
+    });
+  });
+
+  // ── Config.json backup protection ──────────────────────────
+
+  describe('Config.json backup protection', () => {
+    const serverSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/commands/server.ts'),
+      'utf-8',
+    );
+
+    it('should backup config.json before post-update migration', () => {
+      expect(serverSrc).toContain('config.json.backup');
+      expect(serverSrc).toContain('copyFileSync');
+    });
+
+    it('should only backup if config.json exists', () => {
+      // Verify existsSync check before copy
+      const backupSection = serverSrc.substring(
+        serverSrc.indexOf('config.json.backup') - 200,
+        serverSrc.indexOf('config.json.backup') + 100,
+      );
+      expect(backupSection).toContain('existsSync');
+    });
+  });
+
+  // ── Server restart command ──────────────────────────────────
+
+  describe('Server restart command', () => {
+    const serverSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/commands/server.ts'),
+      'utf-8',
+    );
+    const cliSrc = fs.readFileSync(
+      path.join(process.cwd(), 'src/cli.ts'),
+      'utf-8',
+    );
+
+    it('should export restartServer function', () => {
+      expect(serverSrc).toMatch(/export\s+async\s+function\s+restartServer/);
+    });
+
+    it('should handle launchd lifecycle on macOS', () => {
+      expect(serverSrc).toContain('launchctl');
+      expect(serverSrc).toContain('bootout');
+      expect(serverSrc).toContain('bootstrap');
+    });
+
+    it('should handle systemd lifecycle on Linux', () => {
+      expect(serverSrc).toContain('systemctl');
+      expect(serverSrc).toContain('--user');
+      expect(serverSrc).toContain('restart');
+    });
+
+    it('should fall back to stop + start without autostart', () => {
+      expect(serverSrc).toContain('stopServer(options)');
+      expect(serverSrc).toContain('startServer(');
+    });
+
+    it('should be registered as CLI subcommand', () => {
+      expect(cliSrc).toContain("restartServer");
+      expect(cliSrc).toContain("'restart [name]'");
+    });
+
+    it('should import restartServer in cli.ts', () => {
+      expect(cliSrc).toMatch(/import.*restartServer.*from.*server/);
+    });
+  });
 });

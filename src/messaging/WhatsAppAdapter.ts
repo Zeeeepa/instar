@@ -38,6 +38,10 @@ export interface BaileysConfig {
   authMethod?: 'qr' | 'pairing-code';
   /** Phone number for pairing code auth (required when authMethod is 'pairing-code') */
   pairingPhoneNumber?: string;
+  /** Override WhatsApp Web protocol version [major, minor, patch]. Auto-fetched if not set. */
+  version?: [number, number, number];
+  /** Browser identifier [platform, browser, version]. Default: ['Mac OS', 'Chrome', '14.4.1'] (MACOS platform). */
+  browser?: [string, string, string];
 }
 
 export interface BusinessApiConfig {
@@ -734,6 +738,8 @@ export class WhatsAppAdapter implements MessagingAdapter {
       maxReconnectAttempts: bc.maxReconnectAttempts ?? 10,
       authMethod: bc.authMethod ?? (topLevel.authMethod as BaileysConfig['authMethod']) ?? 'qr',
       pairingPhoneNumber: bc.pairingPhoneNumber ?? (topLevel.pairingPhoneNumber as string) ?? '',
+      version: bc.version ?? (topLevel.version as BaileysConfig['version']) ?? undefined as unknown as [number, number, number],
+      browser: bc.browser ?? (topLevel.browser as BaileysConfig['browser']) ?? undefined as unknown as [string, string, string],
     };
   }
 }

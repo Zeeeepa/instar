@@ -92,15 +92,39 @@ export class BaileysBackend {
           'Baileys is required for WhatsApp Web support.',
         );
       }
-      const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = baileys;
+      const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestWaWebVersion } = baileys;
 
       const { state, saveCreds } = await useMultiFileAuthState(this.config.authDir);
+
+      // Resolve WhatsApp Web protocol version:
+      // 1. User-specified version in config (highest priority)
+      // 2. Dynamically fetched from WhatsApp servers (prevents 405 from stale versions)
+      // 3. Baileys built-in default (fallback)
+      let version: [number, number, number] | undefined = this.config.version || undefined;
+      if (!version && fetchLatestWaWebVersion) {
+        try {
+          const fetched = await fetchLatestWaWebVersion();
+          if (fetched?.version) {
+            version = fetched.version as [number, number, number];
+            console.log(`[baileys] Using fetched WA Web version: ${version.join('.')}`);
+          }
+        } catch (versionErr) {
+          console.log(`[baileys] Could not fetch latest WA version, using Baileys default: ${versionErr instanceof Error ? versionErr.message : versionErr}`);
+        }
+      }
+
+      // Browser identifier determines the platform sent to WhatsApp servers.
+      // Default: ['Mac OS', 'Chrome', '14.4.1'] which maps to Platform.MACOS.
+      // Platform.WEB (the old default in some Baileys versions) causes 405 errors.
+      const browser: [string, string, string] = this.config.browser || ['Mac OS', 'Chrome', '14.4.1'];
 
       // Note: printQRInTerminal is deprecated in v7. QR codes are captured
       // via the connection.update event handler below.
       this.socket = makeWASocket({
         auth: state,
         markOnlineOnConnect: this.config.markOnline,
+        ...(version ? { version } : {}),
+        browser,
       });
 
       // Auth state persistence

@@ -24,7 +24,7 @@ import path from 'node:path';
 import { Command } from 'commander';
 import { initProject } from './commands/init.js';
 // setup.ts is imported dynamically — it depends on @inquirer/prompts which requires Node 20.12+
-import { startServer, stopServer } from './commands/server.js';
+import { startServer, stopServer, restartServer } from './commands/server.js';
 import { showStatus } from './commands/status.js';
 import { addUser, listUsers } from './commands/user.js';
 import { addJob, listJobs } from './commands/job.js';
@@ -851,6 +851,23 @@ serverCmd
       }
     }
     return stopServer(opts);
+  });
+
+serverCmd
+  .command('restart [name]')
+  .description('Restart the agent server (handles launchd/systemd lifecycle)')
+  .option('-d, --dir <path>', 'Project directory')
+  .action(async (name, opts) => {
+    if (name && !opts.dir) {
+      const { resolveAgentDir } = await import('./core/Config.js');
+      try {
+        opts.dir = resolveAgentDir(name);
+      } catch (err) {
+        console.log(pc.red(`Agent "${name}" not found: ${err instanceof Error ? err.message : err}`));
+        process.exit(1);
+      }
+    }
+    return restartServer(opts);
   });
 
 // ── Status ────────────────────────────────────────────────────────

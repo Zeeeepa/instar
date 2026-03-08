@@ -1362,6 +1362,12 @@ export async function startServer(options: StartOptions): Promise<void> {
       let lastMigrated = '';
       try { lastMigrated = JSON.parse(fs.readFileSync(versionFile, 'utf-8')).version || ''; } catch { /* first run */ }
       if (installedVersion && installedVersion !== lastMigrated) {
+        // Backup config.json before migration — protects against accidental wipes
+        const configPath = path.join(config.stateDir, 'config.json');
+        if (fs.existsSync(configPath)) {
+          const backupPath = path.join(config.stateDir, 'config.json.backup');
+          fs.copyFileSync(configPath, backupPath);
+        }
         const hasTelegram = config.messaging?.some((m: any) => m.type === 'telegram') ?? false;
         const migrator = new PostUpdateMigrator({
           projectDir: config.projectDir,
@@ -3119,4 +3125,73 @@ export async function stopServer(options: { dir?: string }): Promise<void> {
       console.log(pc.yellow(`No server running (no tmux session: ${serverSessionName})`));
     }
   }
+}
+
+/**
+ * Restart the agent server — handles launchd/systemd lifecycle correctly.
+ *
+ * When autostart (launchd/systemd) is active, simply stopping the server causes
+ * the service manager to respawn it with the OLD binary within seconds. This
+ * makes it impossible to apply patches. The restart command handles this by:
+ *   1. Temporarily disabling the autostart service
+ *   2. Stopping the running server
+ *   3. Re-enabling autostart (which starts the server with the new binary)
+ *
+ * Without autostart, falls back to stop + start.
+ */
+export async function restartServer(options: { dir?: string }): Promise<void> {
+  const config = loadConfig(options.dir);
+
+  if (process.platform === 'darwin') {
+    const label = `ai.instar.${config.projectName}`;
+    const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${label}.plist`);
+
+    if (fs.existsSync(plistPath)) {
+      const uid = process.getuid?.() ?? 501;
+      console.log(`  Restarting via launchd (${label})...`);
+
+      // Bootout the service (stops process + unloads)
+      try {
+        execFileSync('launchctl', ['bootout', `gui/${uid}/${label}`], { stdio: 'ignore' });
+      } catch { /* @silent-fallback-ok — may not be loaded */ }
+
+      // Wait for process to die
+      await new Promise(r => setTimeout(r, 1000));
+
+      // Bootstrap it back (loads + starts)
+      try {
+        execFileSync('launchctl', ['bootstrap', `gui/${uid}`, plistPath], { stdio: 'pipe' });
+        console.log(pc.green(`  Server restarted via launchd (${label})`));
+      } catch (err) {
+        // If bootstrap fails (already loaded), try kickstart
+        try {
+          execFileSync('launchctl', ['kickstart', '-k', `gui/${uid}/${label}`], { stdio: 'pipe' });
+          console.log(pc.green(`  Server restarted via launchd kickstart (${label})`));
+        } catch { /* @silent-fallback-ok — logs manual instructions below */
+          console.log(pc.red(`  Failed to restart via launchd: ${err instanceof Error ? err.message : err}`));
+          console.log(pc.yellow(`  Try manually: launchctl bootout gui/${uid}/${label} && launchctl bootstrap gui/${uid} ${plistPath}`));
+        }
+      }
+      return;
+    }
+  } else if (process.platform === 'linux') {
+    const serviceName = `instar-${config.projectName}.service`;
+    const servicePath = path.join(os.homedir(), '.config', 'systemd', 'user', serviceName);
+    if (fs.existsSync(servicePath)) {
+      console.log(`  Restarting via systemd (${serviceName})...`);
+      try {
+        execFileSync('systemctl', ['--user', 'restart', serviceName], { stdio: 'pipe' });
+        console.log(pc.green(`  Server restarted via systemd (${serviceName})`));
+      } catch (err) {
+        console.log(pc.red(`  Failed to restart via systemd: ${err instanceof Error ? err.message : err}`));
+      }
+      return;
+    }
+  }
+
+  // No autostart — manual stop + start
+  console.log('  Restarting server (stop + start)...');
+  await stopServer(options);
+  await new Promise(r => setTimeout(r, 500));
+  await startServer({ dir: options.dir });
 }
