@@ -1,0 +1,47 @@
+---
+title: Hooks
+description: Behavioral hooks that fire automatically via Claude Code's hook system.
+---
+
+Instar installs behavioral hooks that fire automatically through Claude Code's hook system. These are structural guardrails -- not suggestions.
+
+## Hook Types
+
+Claude Code supports two hook types:
+
+- **PreToolUse (blocking)** -- Runs before a tool executes. Can block the action.
+- **PreToolUse (advisory)** -- Runs before a tool executes. Provides guidance but doesn't block.
+- **SessionStart** -- Runs when a new session starts or context is compacted.
+
+## Installed Hooks
+
+| Hook | Type | What it does |
+|------|------|-------------|
+| Dangerous command guard | PreToolUse (blocking) | Blocks destructive operations: `rm -rf`, force push, database drops |
+| External operation gate | PreToolUse (blocking) | LLM-supervised safety for external service calls via MCP tools |
+| Grounding before messaging | PreToolUse (advisory) | Forces identity re-read before external communication |
+| Deferral detector | PreToolUse (advisory) | Catches the agent deferring work it could do itself |
+| External communication guard | PreToolUse (advisory) | Identity grounding before posting to external platforms |
+| Post-action reflection | PreToolUse (advisory) | Nudges learning capture after commits, deploys, and significant actions |
+| Session start | SessionStart | Injects identity, topic context, and capabilities at session start |
+| Compaction recovery | SessionStart (compact) | Restores identity and conversation context when context compresses |
+
+## How They Work
+
+Hooks are registered in `.claude/settings.json` and scripts live in `.instar/hooks/`. They're installed automatically during setup.
+
+### Blocking Hooks
+
+When a blocking hook rejects an action, Claude Code receives a "blocked" response and must find an alternative approach. The agent sees the reason for the block.
+
+### Advisory Hooks
+
+Advisory hooks inject information into the agent's context before a tool executes. The agent sees the advisory and should incorporate it, but the tool isn't blocked.
+
+## Customization
+
+All hook scripts are in your project directory and fully editable. You can:
+
+- Modify existing hooks to change behavior
+- Add new hooks for your specific needs
+- Disable hooks by removing them from `.claude/settings.json`

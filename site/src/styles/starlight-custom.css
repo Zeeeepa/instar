@@ -1,0 +1,16 @@
+/* Custom Starlight theme to match Instar's teal-on-dark aesthetic */
+:root {
+  --sl-color-accent-low: #0d2d2a;
+  --sl-color-accent: #2dd4bf;
+  --sl-color-accent-high: #99f6e4;
+  --sl-color-white: #e2e8f0;
+  --sl-color-gray-1: #cbd5e1;
+  --sl-color-gray-2: #94a3b8;
+  --sl-color-gray-3: #64748b;
+  --sl-color-gray-4: #334155;
+  --sl-color-gray-5: #1e293b;
+  --sl-color-gray-6: #0f172a;
+  --sl-color-black: #0a0e17;
+  --sl-font: 'Inter', sans-serif;
+  --sl-font-mono: 'JetBrains Mono', monospace;
+}
