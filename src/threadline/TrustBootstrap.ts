@@ -199,7 +199,7 @@ export class TrustBootstrap {
       }
 
       // Directory-verified agents start at 'verified' trust level
-      this.config.trustManager.setTrustLevel(agentIdentity, 'verified', 'setup-default',
+      this.config.trustManager.setTrustLevel(agentIdentity, 'verified', 'paired-machine-granted',
         `Directory-verified via ${directoryUrl}`);
 
       return {
@@ -255,7 +255,7 @@ export class TrustBootstrap {
     }
 
     // Domain-verified agents start at 'verified' trust level
-    this.config.trustManager.setTrustLevel(agentIdentity, 'verified', 'setup-default',
+    this.config.trustManager.setTrustLevel(agentIdentity, 'verified', 'paired-machine-granted',
       `Domain-verified via ${evidence.domain}`);
 
     return {
@@ -294,7 +294,7 @@ export class TrustBootstrap {
     }
 
     // Invitation-verified agents start at 'verified' trust level
-    this.config.trustManager.setTrustLevel(agentIdentity, 'verified', 'setup-default',
+    this.config.trustManager.setTrustLevel(agentIdentity, 'verified', 'paired-machine-granted',
       `Invitation-verified (label: ${consumeResult.invitation?.label ?? 'none'})`);
 
     return {

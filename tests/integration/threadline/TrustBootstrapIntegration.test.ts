@@ -93,11 +93,10 @@ describe('TrustBootstrap Integration', () => {
       expect(result1.verified).toBe(true);
       expect(result1.trustLevel).toBe('verified');
 
-      // Trust profile created (but stays untrusted — setTrustLevel with
-      // 'setup-default' source cannot upgrade, per AgentTrustManager rules)
+      // Trust profile created and upgraded to verified (paired-machine-granted can upgrade)
       const profile = trustManager.getProfile('agent-alpha');
       expect(profile).not.toBeNull();
-      expect(profile!.level).toBe('untrusted');
+      expect(profile!.level).toBe('verified');
 
       // Second agent rejected (single-use token consumed)
       const result2 = await bootstrap.verify('agent-beta', { invitationToken: token });
@@ -157,8 +156,8 @@ describe('TrustBootstrap Integration', () => {
 
       expect(result.verified).toBe(true);
       expect(result.trustLevel).toBe('verified');
-      // Profile created but stays untrusted (setup-default cannot upgrade)
-      expect(trustManager.getProfile('agent-example')!.level).toBe('untrusted');
+      // Profile created and upgraded to verified (paired-machine-granted can upgrade)
+      expect(trustManager.getProfile('agent-example')!.level).toBe('verified');
     });
 
     it('rejects agent when DNS fingerprint does not match', async () => {
@@ -260,8 +259,8 @@ describe('TrustBootstrap Integration', () => {
       expect(result.verified).toBe(true);
       expect(result.trustLevel).toBe('verified');
       expect(result.metadata?.agentName).toBe('TestAgent');
-      // Profile created but stays untrusted (setup-default cannot upgrade)
-      expect(trustManager.getProfile('test-agent')!.level).toBe('untrusted');
+      // Profile created and upgraded to verified (paired-machine-granted can upgrade)
+      expect(trustManager.getProfile('test-agent')!.level).toBe('verified');
     });
 
     it('rejects when directory returns 404', async () => {
@@ -441,14 +440,14 @@ describe('TrustBootstrap Integration', () => {
 
       await bootstrap.verify('persist-agent', { invitationToken: token });
 
-      // Profile created but stays untrusted (setup-default cannot upgrade per trust rules)
+      // Profile created and upgraded to verified (paired-machine-granted can upgrade)
       const profile = trustManager.getProfile('persist-agent');
       expect(profile).not.toBeNull();
-      expect(profile!.level).toBe('untrusted');
-      expect(profile!.source).toBe('setup-default');
+      expect(profile!.level).toBe('verified');
+      expect(profile!.source).toBe('paired-machine-granted');
 
-      // Verify via listProfiles — agent is at untrusted level
-      const profiles = trustManager.listProfiles({ level: 'untrusted' });
+      // Verify via listProfiles — agent is at verified level
+      const profiles = trustManager.listProfiles({ level: 'verified' });
       expect(profiles.some(p => p.agent === 'persist-agent')).toBe(true);
     });
   });

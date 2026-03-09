@@ -103,12 +103,12 @@ describe('TrustBootstrap E2E', () => {
       expect(result.verified).toBe(true);
       expect(result.trustLevel).toBe('verified');
 
-      // Profile created but stays at untrusted (setup-default cannot upgrade per trust rules)
-      // So agent only has untrusted-level operations
+      // Profile created and upgraded to verified (paired-machine-granted can upgrade)
       const agentId = `agent-${fingerprint.slice(0, 8)}`;
+      expect(trustManager.getProfile(agentId)!.level).toBe('verified');
       expect(trustManager.checkPermission(agentId, 'ping')).toBe(true);
       expect(trustManager.checkPermission(agentId, 'health')).toBe(true);
-      expect(trustManager.checkPermission(agentId, 'message')).toBe(false);
+      expect(trustManager.checkPermission(agentId, 'message')).toBe(true);
       expect(trustManager.checkPermission(agentId, 'task-request')).toBe(false);
     });
   });
@@ -144,9 +144,10 @@ describe('TrustBootstrap E2E', () => {
       expect(result.trustLevel).toBe('verified');
       expect(result.metadata?.domain).toBe('agent.example.org');
 
-      // Profile created but stays untrusted (setup-default cannot upgrade)
+      // Profile created and upgraded to verified (paired-machine-granted can upgrade)
+      expect(trustManager.getProfile('domain-agent')!.level).toBe('verified');
       expect(trustManager.checkPermission('domain-agent', 'ping')).toBe(true);
-      expect(trustManager.checkPermission('domain-agent', 'message')).toBe(false);
+      expect(trustManager.checkPermission('domain-agent', 'message')).toBe(true);
     });
   });
 
@@ -266,15 +267,10 @@ describe('TrustBootstrap E2E', () => {
       });
 
       await bootstrap.verify('escalate-agent', { invitationToken: token });
-      // Profile stays untrusted (setup-default cannot upgrade)
-      expect(trustManager.getProfile('escalate-agent')!.level).toBe('untrusted');
+      // Profile upgraded to verified (paired-machine-granted can upgrade)
+      expect(trustManager.getProfile('escalate-agent')!.level).toBe('verified');
 
-      // setup-default cannot upgrade from untrusted to trusted either
-      const setupUpgrade = trustManager.setTrustLevel('escalate-agent', 'trusted', 'setup-default');
-      expect(setupUpgrade).toBe(false);
-      expect(trustManager.getProfile('escalate-agent')!.level).toBe('untrusted');
-
-      // user-granted CAN upgrade
+      // user-granted CAN upgrade to trusted
       const userUpgrade = trustManager.setTrustLevel('escalate-agent', 'trusted', 'user-granted', 'Manual trust upgrade');
       expect(userUpgrade).toBe(true);
       expect(trustManager.getProfile('escalate-agent')!.level).toBe('trusted');
@@ -297,8 +293,7 @@ describe('TrustBootstrap E2E', () => {
       });
 
       await bootstrap.verify('autonomous-candidate', { invitationToken: token });
-      // Bootstrap leaves agent at untrusted, user grants upgrade path
-      trustManager.setTrustLevel('autonomous-candidate', 'verified', 'user-granted');
+      // Bootstrap upgrades agent to verified, user grants further upgrades
       trustManager.setTrustLevel('autonomous-candidate', 'trusted', 'user-granted');
       trustManager.setTrustLevel('autonomous-candidate', 'autonomous', 'user-granted', 'Full autonomy granted');
 
@@ -335,9 +330,9 @@ describe('TrustBootstrap E2E', () => {
       const sixth = await bootstrap.verify('team-member-5', { invitationToken: token });
       expect(sixth.verified).toBe(false);
 
-      // All 5 have profiles
+      // All 5 have profiles at verified level
       for (let i = 0; i < 5; i++) {
-        expect(trustManager.getProfile(`team-member-${i}`)!.level).toBe('untrusted');
+        expect(trustManager.getProfile(`team-member-${i}`)!.level).toBe('verified');
       }
     });
   });
@@ -367,8 +362,8 @@ describe('TrustBootstrap E2E', () => {
       // Trust profile persisted
       const profile = trustManager2.getProfile('persistent-agent');
       expect(profile).not.toBeNull();
-      // Profile stays untrusted (setup-default cannot upgrade)
-      expect(profile!.level).toBe('untrusted');
+      // Profile upgraded to verified (paired-machine-granted can upgrade)
+      expect(profile!.level).toBe('verified');
 
       // Invitation state persisted (1 use consumed, 1 remaining)
       const bootstrap2 = new TrustBootstrap({
@@ -400,9 +395,8 @@ describe('TrustBootstrap E2E', () => {
 
       await bootstrap.verify('audit-agent', { invitationToken: token });
 
-      // Bootstrap's setTrustLevel with setup-default can't upgrade, so no audit.
-      // User-granted upgrade DOES write to audit trail.
-      trustManager1.setTrustLevel('audit-agent', 'verified', 'user-granted', 'Manual upgrade for audit test');
+      // Bootstrap's setTrustLevel with paired-machine-granted successfully upgrades,
+      // which writes to the audit trail.
 
       // Recreate trust manager
       const trustManager2 = new AgentTrustManager({ stateDir });
@@ -757,11 +751,8 @@ describe('TrustBootstrap E2E', () => {
 
       await bootstrap.verify('notified-agent', { invitationToken: token });
 
-      // setTrustLevel with 'setup-default' cannot upgrade from untrusted,
-      // so no trust change notification fires. The profile is created at untrusted.
-      // Notification fires when user manually upgrades:
-      trustManager.setTrustLevel('notified-agent', 'verified', 'user-granted', 'Manual upgrade');
-
+      // setTrustLevel with 'paired-machine-granted' successfully upgrades to verified,
+      // so trust change notification fires during bootstrap.
       expect(notifications.length).toBeGreaterThan(0);
       const relevant = notifications.find(n => n.agent === 'notified-agent');
       expect(relevant).toBeDefined();
@@ -809,9 +800,9 @@ describe('TrustBootstrap E2E', () => {
 
       // All three agents exist with correct levels
       expect(trustManager.getProfile('open-peer')!.level).toBe('untrusted');
-      // All stay untrusted (setup-default cannot upgrade)
-      expect(trustManager.getProfile('invited-peer')!.level).toBe('untrusted');
-      expect(trustManager.getProfile('dns-peer')!.level).toBe('untrusted');
+      // Invitation and DNS bootstrap upgrade to verified (paired-machine-granted can upgrade)
+      expect(trustManager.getProfile('invited-peer')!.level).toBe('verified');
+      expect(trustManager.getProfile('dns-peer')!.level).toBe('verified');
 
       // Trust manager lists all
       const allProfiles = trustManager.listProfiles();
