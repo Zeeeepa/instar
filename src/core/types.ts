@@ -881,6 +881,82 @@ export interface DecisionJournalEntry {
   tags?: string[];
 }
 
+/**
+ * Dispatch-specific decision journal entry.
+ * Extends the base DecisionJournalEntry with dispatch integration fields.
+ * This is the foundation for the Discernment Layer — logging every dispatch
+ * integration decision for observability, harvesting, and identity formation.
+ *
+ * In Milestone 1, all entries are `{ dispatchDecision: 'accept', reasoning: 'auto-applied' }`.
+ * Intelligence comes in Milestone 4 (LLM evaluation).
+ */
+export interface DispatchDecisionEntry extends DecisionJournalEntry {
+  /** Discriminator tag for dispatch decisions */
+  type: 'dispatch';
+  /** The dispatch ID this decision applies to */
+  dispatchId: string;
+  /** Dispatch type (lesson, strategy, configuration, etc.) */
+  dispatchType: string;
+  /** Dispatch priority */
+  dispatchPriority: string;
+  /** The integration decision */
+  dispatchDecision: 'accept' | 'adapt' | 'defer' | 'reject';
+  /** Why this decision was made */
+  reasoning: string;
+  /** Whether this was auto-evaluated (structural only) or LLM-evaluated */
+  evaluationMethod: 'structural' | 'contextual';
+  /** Adaptation summary if decision was 'adapt' */
+  adaptationSummary?: string;
+  /** Post-adaptation scope validation result */
+  adaptationScopeResult?: 'passed' | 'failed' | 'skipped';
+  /** Evaluator prompt version (for tracking drift) */
+  promptVersion?: string;
+  /** Whether the dispatch was successfully applied after acceptance */
+  applied?: boolean;
+  /** Error message if application failed */
+  applicationError?: string;
+}
+
+// ── Agent Context Snapshot (Discernment Layer) ──────────────────────
+
+/**
+ * Structured snapshot of agent state for contextual dispatch evaluation.
+ * Used by the Discernment Layer to provide the LLM evaluator with
+ * agent context. Designed with data minimization — only structural
+ * metadata, no sensitive operational details.
+ *
+ * Hard truncation rules (from spec v3):
+ * - identity.intent: max 200 tokens (~800 chars), truncated with [truncated]
+ * - recentDecisions: max 20 entries, each decision string max 100 chars
+ * - activeJobs: max 20 entries
+ * - appliedDispatchSummary: counts only, no content
+ * - Total snapshot MUST fit in 800 tokens
+ */
+export interface AgentContextSnapshot {
+  /** Agent name and description */
+  identity: {
+    name: string;
+    description: string;
+    intent?: string;
+  };
+  /** Enabled features and platform bindings */
+  capabilities: {
+    platforms: string[];
+    features: string[];
+    disabledFeatures: string[];
+  };
+  /** Active job slugs and descriptions */
+  activeJobs: Array<{ slug: string; description: string }>;
+  /** Recent decision patterns (last 20 entries, summarized) */
+  recentDecisions: Array<{ decision: string; principle?: string; tags?: string[] }>;
+  /** Current autonomy profile level */
+  autonomyLevel: AutonomyProfileLevel;
+  /** Count and types of already-applied dispatches */
+  appliedDispatchSummary: { count: number; byType: Record<string, number> };
+  /** Snapshot generation timestamp */
+  generatedAt: string;
+}
+
 // ── Multi-Machine ───────────────────────────────────────────────────
 
 export interface MachineIdentity {

@@ -18,6 +18,20 @@ export type { FeedbackQualityResult } from './core/FeedbackManager.js';
 export { EvolutionManager } from './core/EvolutionManager.js';
 export { DecisionJournal } from './core/DecisionJournal.js';
 export type { DecisionJournalStats } from './core/DecisionJournal.js';
+export { DispatchDecisionJournal } from './core/DispatchDecisionJournal.js';
+export type { DispatchDecisionStats, DispatchDecisionQueryOptions } from './core/DispatchDecisionJournal.js';
+export { ContextSnapshotBuilder } from './core/ContextSnapshotBuilder.js';
+export type { ContextSnapshotConfig } from './core/ContextSnapshotBuilder.js';
+export { DispatchVerifier } from './core/DispatchVerifier.js';
+export type { SignedDispatch, VerificationResult as DispatchVerificationResult, DispatchVerifierConfig } from './core/DispatchVerifier.js';
+export { RelevanceFilter } from './core/RelevanceFilter.js';
+export type { RelevanceFilterResult, RelevanceFilterConfig } from './core/RelevanceFilter.js';
+export { ContextualEvaluator } from './core/ContextualEvaluator.js';
+export type { ContextualEvaluation, ContextualEvaluatorConfig } from './core/ContextualEvaluator.js';
+export { DeferredDispatchTracker } from './core/DeferredDispatchTracker.js';
+export type { DeferredDispatchState, DeferredDispatchTrackerConfig, DeferralResult } from './core/DeferredDispatchTracker.js';
+export { AdaptationValidator } from './core/AdaptationValidator.js';
+export type { AdaptationScopeCheck, AdaptationValidatorConfig } from './core/AdaptationValidator.js';
 export { ExecutionJournal } from './core/ExecutionJournal.js';
 export type { ExecutionJournalStats } from './core/ExecutionJournal.js';
 export { PatternAnalyzer } from './core/PatternAnalyzer.js';
@@ -318,6 +332,16 @@ export { CommitmentSentinel } from './monitoring/CommitmentSentinel.js';
 export type { CommitmentSentinelConfig } from './monitoring/CommitmentSentinel.js';
 export { SessionActivitySentinel } from './monitoring/SessionActivitySentinel.js';
 export type { SentinelConfig, SentinelReport, SynthesisReport } from './monitoring/SessionActivitySentinel.js';
+export { HookEventReceiver } from './monitoring/HookEventReceiver.js';
+export type { HookEventPayload, StoredHookEvent, SessionEventSummary, HookEventReceiverConfig } from './monitoring/HookEventReceiver.js';
+export { WorktreeMonitor } from './monitoring/WorktreeMonitor.js';
+export type { Worktree, WorktreeReport, WorktreeWithDiff, WorktreeMonitorConfig } from './monitoring/WorktreeMonitor.js';
+export { SubagentTracker } from './monitoring/SubagentTracker.js';
+export type { SubagentRecord, SubagentTrackerConfig } from './monitoring/SubagentTracker.js';
+export { InstructionsVerifier } from './monitoring/InstructionsVerifier.js';
+export type { InstructionLoadRecord, VerificationResult as InstructionsVerificationResult, InstructionsVerifierConfig } from './monitoring/InstructionsVerifier.js';
+export { HTTP_HOOK_TEMPLATES, buildHttpHookSettings } from './data/http-hook-templates.js';
+export type { HttpHookTemplate } from './data/http-hook-templates.js';
 export { SleepWakeDetector } from './core/SleepWakeDetector.js';
 
 // Messaging — Telegram & Notifications
@@ -478,6 +502,8 @@ export type {
   ActionItem,
   EvolutionManagerConfig,
   DecisionJournalEntry,
+  DispatchDecisionEntry,
+  AgentContextSnapshot,
   MachineIdentity,
   MachineRegistry,
   MachineRegistryEntry,
