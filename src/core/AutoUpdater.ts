@@ -316,9 +316,8 @@ export class AutoUpdater {
         if (!this.notifiedVersionMismatch) {
           this.notifiedVersionMismatch = info.latestVersion;
           await this.notify(
-            `Updated to v${info.latestVersion} but the running server is still on v${info.currentVersion}. ` +
-            `This usually means the installed binary path differs from the running one. ` +
-            `A manual restart of the server process should pick up the new version.`
+            `Updated to v${info.latestVersion} but I'm still running v${info.currentVersion}. ` +
+            `A server restart should pick up the new version.`
           );
         }
         this.saveState();
@@ -336,10 +335,9 @@ export class AutoUpdater {
       if (this.isNpxCached) {
         if (!this.coalescingUntil) {
           await this.notify(
-            `There's a new version available (v${info.latestVersion}), but I'm running from an npx cache ` +
-            `so auto-updates can't take effect. To fix this permanently:\n` +
-            `1. npm install -g instar\n` +
-            `2. Restart the lifeline with the global binary`
+            `There's a new version available (v${info.latestVersion}), but I'm running from a temporary install ` +
+            `so auto-updates can't take effect. To fix this, install me permanently and restart the lifeline — ` +
+            `your admin can handle this, or just say "help me update" and I'll walk through it.`
           );
           this.coalescingUntil = 'notified-npx';
         }

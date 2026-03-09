@@ -168,7 +168,7 @@ async function handleFixCommand(topicId: number, text: string, deps: FixCommandD
       ], { timeout: 10000 });
       await send('Done! Removed the local shadow installation. Your agent will now use the global Instar binary and receive auto-updates properly.');
     } catch (err) {
-      await send(`Failed to remove shadow installation: ${err instanceof Error ? err.message : String(err)}\n\nYou can fix this manually by deleting the node_modules folder in your project directory.`);
+      await send(`I ran into a problem removing the local installation. I'll try again next time, or you can ask me to retry now.`);
     }
     return true;
   }
@@ -220,7 +220,7 @@ async function handleFixCommand(topicId: number, text: string, deps: FixCommandD
   if (cmd === 'fix lifeline') {
     // Lifeline is managed by the separate lifeline process, not the server.
     // Best we can do is suggest the right command.
-    await send('The lifeline runs as a separate process. To restart it, use the Lifeline topic and send:\n/lifeline restart\n\nThis will reset the circuit breaker and restart your server.');
+    await send('The lifeline runs separately from the main server. Head over to the Lifeline topic and say "restart" — it will reset everything and bring the server back up.');
     return true;
   }
 
@@ -234,7 +234,7 @@ async function handleFixCommand(topicId: number, text: string, deps: FixCommandD
     if (!outputCheck || outputCheck.passed) {
       await send('Output check passed — no bad patterns found in recent messages. The earlier issue may have resolved itself.');
     } else {
-      await send(`Output check still showing issues: ${outputCheck.message}\n\nThis usually means your agent is including internal URLs (like "localhost") in messages. Your agent should be using your public domain instead. The issue will be flagged to your agent in its next session.`);
+      await send(`Output check still showing issues — your agent is including internal links in messages that users can't access. Your agent should be using your public domain instead. This will be flagged to your agent in its next session.`);
     }
     return true;
   }
@@ -599,7 +599,8 @@ function wireTelegramCallbacks(
         const result = await accountSwitcher.switchAccount(target);
         await telegram.sendToTopic(replyTopicId, result.message);
       } catch (err) {
-        await telegram.sendToTopic(replyTopicId, `Account switch failed: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[telegram] Account switch failed:`, err);
+        await telegram.sendToTopic(replyTopicId, 'Account switch didn\'t work. There may be an issue with the target account — try again or check /quota for current status.');
       }
     };
   }
@@ -637,7 +638,8 @@ function wireTelegramCallbacks(
 
         await telegram.sendToTopic(replyTopicId, lines.join('\n'));
       } catch (err) {
-        await telegram.sendToTopic(replyTopicId, `Failed to get quota: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[telegram] Quota check failed:`, err);
+        await telegram.sendToTopic(replyTopicId, 'Couldn\'t check quota right now. The usage tracking service may be temporarily unavailable.');
       }
     };
   }
@@ -661,7 +663,7 @@ function wireTelegramCallbacks(
   telegram.onLoginRequest = async (email: string | null, replyTopicId: number): Promise<void> => {
     const tmuxPath = detectTmuxPath();
     if (!tmuxPath) {
-      await telegram.sendToTopic(replyTopicId, 'tmux not found — cannot run login flow.');
+      await telegram.sendToTopic(replyTopicId, 'Login isn\'t available right now — a required system component is missing. This needs to be set up on the server side.');
       return;
     }
 
@@ -745,14 +747,15 @@ function wireTelegramCallbacks(
       if (authComplete) {
         await telegram.sendToTopic(replyTopicId, 'Authentication successful! New sessions will use this account.');
       } else {
-        await telegram.sendToTopic(replyTopicId, 'Login flow ended. Check `claude auth status` to verify.');
+        await telegram.sendToTopic(replyTopicId, 'Login flow ended, but I couldn\'t confirm it completed successfully. Try sending a message to test if the new account is working.');
       }
     } catch (err) {
       // Clean up on error
       try {
         execFileSync(tmuxPath, ['kill-session', '-t', `=${loginSession}`], { stdio: 'ignore' });
       } catch { /* ignore */ }
-      await telegram.sendToTopic(replyTopicId, `Login failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[telegram] Login failed:`, err);
+      await telegram.sendToTopic(replyTopicId, 'Login didn\'t complete successfully. Try again, or if this keeps happening, the authentication service may be down.');
     }
   };
 }
@@ -827,7 +830,8 @@ function wireTelegramRouting(
           console.log(`[telegram] Spawned session "${newSession}" for new topic ${topic.topicId}`);
         } catch (err) {
           console.error(`[telegram] /new failed:`, err);
-          await telegram.sendToTopic(topicId, `Failed to spawn session: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+          console.error(`[telegram] Session spawn failed:`, err);
+          await telegram.sendToTopic(topicId, 'Couldn\'t create the new session. Try again in a moment.').catch(() => {});
         }
       })();
       return;
@@ -929,7 +933,8 @@ function wireTelegramRouting(
         console.log(`[telegram→session] Auto-spawned "${newSessionName}" for topic ${topicId}`);
       }).catch((err) => {
         console.error(`[telegram→session] Auto-spawn failed:`, err);
-        telegram.sendToTopic(topicId, `Failed to create session: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+        console.error(`[telegram] Auto-spawn failed for topic ${topicId}:`, err);
+        telegram.sendToTopic(topicId, 'Having trouble starting a session right now. Try sending your message again in a moment.').catch(() => {});
       });
     }
   };

@@ -436,7 +436,7 @@ export class TelegramAdapter implements MessagingAdapter {
       const topicId = parseInt(ctx.channelId, 10);
       const sessionName = ctx.args;
       if (!sessionName) {
-        await this.sendToTopic(topicId, `Usage: /${ctx.command} <session-name>`).catch(() => {});
+        await this.sendToTopic(topicId, `Please include a session name — e.g. /${ctx.command} my-session`).catch(() => {});
         return true;
       }
       const existingSession = this.getSessionForTopic(topicId);
@@ -477,12 +477,13 @@ export class TelegramAdapter implements MessagingAdapter {
         const success = await this.onInterruptSession(sessionName);
         this.clearStallForTopic(topicId);
         if (success) {
-          await this.sendToTopic(topicId, `Sent Escape to "${sessionName}" \u2014 it should resume processing.`).catch(() => {});
+          await this.sendToTopic(topicId, `Nudged "${sessionName}" \u2014 it should resume shortly.`).catch(() => {});
         } else {
           await this.sendToTopic(topicId, `Failed to interrupt "${sessionName}" \u2014 session may not exist.`).catch(() => {});
         }
       } catch (err) {
-        await this.sendToTopic(topicId, `Interrupt error: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+        console.error(`[telegram] Interrupt failed:`, err);
+        await this.sendToTopic(topicId, 'Couldn\'t interrupt the session. It may have already ended.').catch(() => {});
       }
       return true;
     }, { description: 'Send Escape to unstick a stalled session' });
@@ -504,7 +505,8 @@ export class TelegramAdapter implements MessagingAdapter {
         await this.onRestartSession(sessionName, topicId);
         await this.sendToTopic(topicId, 'Session restarted.').catch(() => {});
       } catch (err) {
-        await this.sendToTopic(topicId, `Restart failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+        console.error(`[telegram] Restart failed:`, err);
+        await this.sendToTopic(topicId, 'Restart didn\'t work. The session may need to be recreated — try sending a new message.').catch(() => {});
       }
       return true;
     }, { description: 'Kill and respawn session' });
@@ -528,7 +530,7 @@ export class TelegramAdapter implements MessagingAdapter {
       if (this.onSwitchAccountRequest) {
         this.onSwitchAccountRequest(ctx.args, topicId).catch(err => {
           console.error('[telegram] Switch account failed:', err);
-          this.sendToTopic(topicId, `Switch failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+          this.sendToTopic(topicId, 'Account switch didn\'t work. Try again or use /quota to check status.').catch(() => {});
         });
       } else {
         await this.sendToTopic(topicId, 'Account switching not available.').catch(() => {});
@@ -541,7 +543,7 @@ export class TelegramAdapter implements MessagingAdapter {
       if (this.onQuotaStatusRequest) {
         this.onQuotaStatusRequest(topicId).catch(err => {
           console.error('[telegram] Quota status failed:', err);
-          this.sendToTopic(topicId, `Quota check failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+          this.sendToTopic(topicId, 'Couldn\'t check quota right now. Try again in a moment.').catch(() => {});
         });
       } else {
         await this.sendToTopic(topicId, 'Quota status not available.').catch(() => {});
@@ -555,7 +557,7 @@ export class TelegramAdapter implements MessagingAdapter {
       if (this.onLoginRequest) {
         this.onLoginRequest(email, topicId).catch(err => {
           console.error('[telegram] Login flow failed:', err);
-          this.sendToTopic(topicId, `Login failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+          this.sendToTopic(topicId, 'Login didn\'t complete. Try again, or the auth service may be temporarily unavailable.').catch(() => {});
         });
       } else {
         await this.sendToTopic(topicId, 'Login not available.').catch(() => {});
@@ -1746,7 +1748,7 @@ export class TelegramAdapter implements MessagingAdapter {
           const status = alive ? 'running but not responding' : 'no longer running';
           this.sendToTopic(
             pending.topicId,
-            `\u26a0\ufe0f No response after ${minutesAgo} minutes. Session "${pending.sessionName}" is ${status}.\n\nMessage: "${pending.messageText}..."${alive ? '\n\nTry /interrupt to unstick, or /restart to respawn.' : '\n\nSend another message to auto-respawn.'}`,
+            `\u26a0\ufe0f No response after ${minutesAgo} minutes. "${pending.sessionName}" is ${status}.\n\nYour message: "${pending.messageText}..."${alive ? '\n\nTry /interrupt to nudge it, or /restart to start fresh.' : '\n\nSend another message and a new session will start automatically.'}`,
           ).catch(err => {
             console.error(`[telegram] Stall alert failed: ${err}`);
           });
@@ -2181,7 +2183,7 @@ export class TelegramAdapter implements MessagingAdapter {
     if (cmd.startsWith('/claim ')) {
       const sessionName = text.trim().slice(7).trim();
       if (!sessionName) {
-        await this.sendToTopic(topicId, 'Usage: /claim <session-name>').catch(() => {});
+        await this.sendToTopic(topicId, 'Please include a session name — e.g. /claim my-session').catch(() => {});
         return true;
       }
 
@@ -2201,7 +2203,7 @@ export class TelegramAdapter implements MessagingAdapter {
     if (cmd.startsWith('/link ')) {
       const sessionName = text.trim().slice(6).trim();
       if (!sessionName) {
-        await this.sendToTopic(topicId, 'Usage: /link <session-name>').catch(() => {});
+        await this.sendToTopic(topicId, 'Please include a session name — e.g. /link my-session').catch(() => {});
         return true;
       }
 
@@ -2247,12 +2249,13 @@ export class TelegramAdapter implements MessagingAdapter {
         // Clear stall tracking — user is actively intervening
         this.clearStallForTopic(topicId);
         if (success) {
-          await this.sendToTopic(topicId, `Sent Escape to "${sessionName}" \u2014 it should resume processing.`).catch(() => {});
+          await this.sendToTopic(topicId, `Nudged "${sessionName}" \u2014 it should resume shortly.`).catch(() => {});
         } else {
           await this.sendToTopic(topicId, `Failed to interrupt "${sessionName}" \u2014 session may not exist.`).catch(() => {});
         }
       } catch (err) {
-        await this.sendToTopic(topicId, `Interrupt error: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+        console.error(`[telegram] Interrupt failed:`, err);
+        await this.sendToTopic(topicId, 'Couldn\'t interrupt the session. It may have already ended.').catch(() => {});
       }
       return true;
     }
@@ -2277,7 +2280,8 @@ export class TelegramAdapter implements MessagingAdapter {
         await this.onRestartSession(sessionName, topicId);
         await this.sendToTopic(topicId, 'Session restarted.').catch(() => {});
       } catch (err) {
-        await this.sendToTopic(topicId, `Restart failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+        console.error(`[telegram] Restart failed:`, err);
+        await this.sendToTopic(topicId, 'Restart didn\'t work. The session may need to be recreated — try sending a new message.').catch(() => {});
       }
       return true;
     }
@@ -2302,7 +2306,7 @@ export class TelegramAdapter implements MessagingAdapter {
       if (this.onSwitchAccountRequest) {
         this.onSwitchAccountRequest(target, topicId).catch(err => {
           console.error('[telegram] Switch account failed:', err);
-          this.sendToTopic(topicId, `Switch failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+          this.sendToTopic(topicId, 'Account switch didn\'t work. Try again or use /quota to check status.').catch(() => {});
         });
       } else {
         await this.sendToTopic(topicId, 'Account switching not available.').catch(() => {});
@@ -2315,7 +2319,7 @@ export class TelegramAdapter implements MessagingAdapter {
       if (this.onQuotaStatusRequest) {
         this.onQuotaStatusRequest(topicId).catch(err => {
           console.error('[telegram] Quota status failed:', err);
-          this.sendToTopic(topicId, `Quota check failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+          this.sendToTopic(topicId, 'Couldn\'t check quota right now. Try again in a moment.').catch(() => {});
         });
       } else {
         await this.sendToTopic(topicId, 'Quota status not available.').catch(() => {});
@@ -2331,7 +2335,7 @@ export class TelegramAdapter implements MessagingAdapter {
         this.onLoginRequest(email, topicId).catch(err => {
           // @silent-fallback-ok — login error, user notified
           console.error('[telegram] Login flow failed:', err);
-          this.sendToTopic(topicId, `Login failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => { /* @silent-fallback-ok — secondary notification */ });
+          this.sendToTopic(topicId, 'Login didn\'t complete. Try again, or the auth service may be temporarily unavailable.').catch(() => { /* @silent-fallback-ok — secondary notification */ });
         });
       } else {
         await this.sendToTopic(topicId, 'Login not available.').catch(() => { /* @silent-fallback-ok — secondary notification */ });
@@ -3138,7 +3142,7 @@ export class TelegramAdapter implements MessagingAdapter {
       }
     } catch (err) {
       console.error(`[telegram] Failed to download photo: ${err}`);
-      await this.sendToTopic(topicId, `(Photo received but download failed: ${err instanceof Error ? err.message : String(err)})`).catch(() => {});
+      await this.sendToTopic(topicId, '(Photo received but I couldn\'t process it. Try sending it again.)').catch(() => {});
     }
   }
 

@@ -84,8 +84,8 @@ export class QuotaNotifier {
     else if (percent >= WEEKLY_THRESHOLDS.warning) currentLevel = 'warning';
 
     if (currentLevel && currentLevel !== this.state.lastWeeklyLevel) {
-      const labels: Record<string, string> = { warning: 'WARNING', critical: 'CRITICAL', limit: 'LIMIT REACHED' };
-      await this.send(`[QUOTA ${labels[currentLevel]}] Weekly at ${percent}%`);
+      const labels: Record<string, string> = { warning: 'getting high', critical: 'getting very high', limit: 'reached the limit' };
+      await this.send(`\u26a0\ufe0f Weekly usage is ${labels[currentLevel]} \u2014 at ${percent}%.`);
       this.state.lastWeeklyLevel = currentLevel;
       this.recordNotification('weekly', currentLevel, percent);
       this.saveState();
@@ -104,8 +104,8 @@ export class QuotaNotifier {
     else if (percent >= FIVE_HOUR_THRESHOLDS.warning) currentLevel = 'warning';
 
     if (currentLevel && currentLevel !== this.state.lastFiveHourLevel) {
-      const labels: Record<string, string> = { warning: 'WARNING', limit: 'FULL' };
-      await this.send(`[5-HOUR RATE LIMIT ${labels[currentLevel]}] At ${percent}%. Sessions may fail.`);
+      const labels: Record<string, string> = { warning: 'getting close to the short-term limit', limit: 'hit the short-term limit' };
+      await this.send(`\u26a0\ufe0f Usage is ${labels[currentLevel]} \u2014 at ${percent}%. New sessions may not start until this resets.`);
       this.state.lastFiveHourLevel = currentLevel;
       this.recordNotification('five_hour', currentLevel, percent);
       this.saveState();
