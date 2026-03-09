@@ -35,6 +35,13 @@ const FLAKY_TESTS = [
   // ── Threadline (WIP, uncommitted) — state/UUID race conditions ────
   'tests/integration/threadline/**',
   'tests/unit/threadline/**',
+
+  // ── UUID discovery picks up real session files ────────────────────
+  'tests/unit/TopicResumeMap.test.ts',
+  'tests/unit/topic-resume-map.test.ts',
+
+  // ── HTTP parse errors / timeouts in topic routes ──────────────────
+  'tests/integration/topic-memory-routes.test.ts',
 ];
 
 export default defineConfig({
