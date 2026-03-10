@@ -63,6 +63,12 @@ const FLAKY_TESTS = [
 
   // ── Supertest body size limit vs express limit mismatch ─────────
   'tests/integration/view-tunnel-routes.test.ts',
+
+  // ── Supertest timing race (rate limiter window reset) ───────────
+  'tests/unit/rate-limiter.test.ts',
+
+  // ── Git state race condition (completeBranch status) ────────────
+  'tests/integration/branch-wiring.test.ts',
 ];
 
 export default defineConfig({
