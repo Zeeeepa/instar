@@ -8,28 +8,18 @@
 
 ## What Changed
 
-<!-- Describe what changed technically. What new features, APIs, behavioral changes? -->
-<!-- Write this for the AGENT — they need to understand the system deeply. -->
+### Lifeline topic verification now retries on transient network errors
+
+When the Telegram Lifeline topic check fails with a transient error (such as a network timeout during startup), the system now waits 3 seconds and retries once before reporting a degradation. Previously, a single `sendChatAction` timeout would immediately trigger a "Using unverified lifeline topic ID" degradation report even though the lifeline topic itself was almost certainly still valid.
+
+If the retry succeeds, no degradation is reported. If the retry also fails, degradation is reported as before — but with "after retry" noted in the reason for clarity.
 
 ## What to Tell Your User
 
-<!-- Write talking points the agent should relay to their user. -->
-<!-- This should be warm, conversational, user-facing — not a changelog. -->
-<!-- Focus on what THEY can now do, not internal plumbing. -->
-<!--                                                                    -->
-<!-- PROHIBITED in this section (will fail validation):                 -->
-<!--   camelCase config keys: silentReject, maxRetries, telegramNotify -->
-<!--   Inline code backtick references like silentReject: false        -->
-<!--   Fenced code blocks                                              -->
-<!--   Instructions to edit files or run commands                      -->
-<!--                                                                    -->
-<!-- CORRECT style: "I can turn that on for you" not "set X to false"  -->
-<!-- The agent relays this to their user — keep it human.              -->
-
-- **[Feature name]**: "[Brief, friendly description of what this means for the user]"
+- **Fewer false alarms at startup**: I should no longer report lifeline degradation during startup when there's a brief network hiccup. The warning will only appear if the connection is genuinely unavailable.
 
 ## Summary of New Capabilities
 
 | Capability | How to Use |
 |-----------|-----------|
-| [Capability] | [Endpoint, command, or "automatic"] |
+| Lifeline retry on transient errors | Automatic — no configuration needed |
