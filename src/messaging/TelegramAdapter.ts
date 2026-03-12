@@ -885,12 +885,27 @@ export class TelegramAdapter implements MessagingAdapter {
           return null;
         }
       }
-      // Some other error (network, etc.) — don't recreate, just warn
+      // Some other error (network, etc.) — retry once before reporting degradation.
+      // Transient errors like "This operation was aborted" (15s fetch timeout) should
+      // not trigger degradation on the first attempt — a brief retry on startup resolves them.
+      let retryErr: unknown = err;
+      try {
+        await new Promise<void>(resolve => setTimeout(resolve, 3000));
+        await this.apiCall('sendChatAction', {
+          chat_id: this.config.chatId,
+          message_thread_id: this.config.lifelineTopicId,
+          action: 'typing',
+        });
+        console.log(`[telegram] Lifeline topic verified (retry succeeded): ${this.config.lifelineTopicId}`);
+        return this.config.lifelineTopicId;
+      } catch (e) {
+        retryErr = e;
+      }
       DegradationReporter.getInstance().report({
         feature: 'Telegram.Lifeline',
         primary: 'Verified lifeline topic for emergency agent communication',
         fallback: 'Using unverified (possibly stale) lifeline topic ID',
-        reason: `Lifeline topic check failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason: `Lifeline topic check failed after retry: ${retryErr instanceof Error ? retryErr.message : String(retryErr)}`,
         impact: 'Lifeline may be unreachable — messages to agent could fail silently.',
       });
       return this.config.lifelineTopicId;
