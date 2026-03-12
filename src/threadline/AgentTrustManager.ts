@@ -35,6 +35,8 @@ export interface AgentTrustHistory {
 
 export interface AgentTrustProfile {
   agent: string;
+  /** Cryptographic fingerprint (Ed25519-derived). Primary identity key. */
+  fingerprint?: string;
   level: AgentTrustLevel;
   source: AgentTrustSource;
   history: AgentTrustHistory;
@@ -126,6 +128,8 @@ export class AgentTrustManager {
   private readonly auditPath: string;
   private profiles: Record<string, AgentTrustProfile>;
   private onTrustChange: TrustChangeCallback | null;
+  private saveDirty = false;
+  private saveTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: {
     stateDir: string;
@@ -175,6 +179,99 @@ export class AgentTrustManager {
       this.save();
     }
     return this.profiles[agentName];
+  }
+
+  // ── Fingerprint-Based Access (for relay messages) ──────────────
+
+  /**
+   * Get trust profile by cryptographic fingerprint.
+   * Used for relay inbound messages where identity is fingerprint-based.
+   */
+  getProfileByFingerprint(fingerprint: string): AgentTrustProfile | null {
+    for (const profile of Object.values(this.profiles)) {
+      if (profile.fingerprint === fingerprint) {
+        return profile;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get or create a trust profile keyed by fingerprint.
+   * For relay agents, the fingerprint IS the identity.
+   */
+  getOrCreateProfileByFingerprint(fingerprint: string, displayName?: string): AgentTrustProfile {
+    // Check if profile already exists by fingerprint
+    const existing = this.getProfileByFingerprint(fingerprint);
+    if (existing) return existing;
+
+    // Create new profile keyed by fingerprint
+    const now = new Date().toISOString();
+    const key = displayName ?? fingerprint;
+    this.profiles[key] = {
+      agent: key,
+      fingerprint,
+      level: 'untrusted',
+      source: 'setup-default',
+      history: {
+        messagesReceived: 0,
+        messagesResponded: 0,
+        successfulInteractions: 0,
+        failedInteractions: 0,
+        lastInteraction: '',
+        streakSinceIncident: 0,
+      },
+      allowedOperations: [...DEFAULT_ALLOWED_OPS.untrusted],
+      blockedOperations: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.save();
+    return this.profiles[key];
+  }
+
+  /**
+   * Get trust level by fingerprint. Returns 'untrusted' for unknown agents.
+   */
+  getTrustLevelByFingerprint(fingerprint: string): AgentTrustLevel {
+    const profile = this.getProfileByFingerprint(fingerprint);
+    return profile?.level ?? 'untrusted';
+  }
+
+  /**
+   * Get allowed operations by fingerprint.
+   */
+  getAllowedOperationsByFingerprint(fingerprint: string): string[] {
+    const profile = this.getProfileByFingerprint(fingerprint);
+    if (!profile) return [...DEFAULT_ALLOWED_OPS.untrusted];
+    return profile.allowedOperations.length > 0
+      ? profile.allowedOperations
+      : [...DEFAULT_ALLOWED_OPS[profile.level]];
+  }
+
+  /**
+   * Set trust level by fingerprint.
+   */
+  setTrustLevelByFingerprint(
+    fingerprint: string,
+    level: AgentTrustLevel,
+    source: AgentTrustSource,
+    reason?: string,
+    displayName?: string,
+  ): boolean {
+    const profile = this.getOrCreateProfileByFingerprint(fingerprint, displayName);
+    return this.setTrustLevel(profile.agent, level, source, reason);
+  }
+
+  /**
+   * Record a received message by fingerprint (debounced save).
+   */
+  recordMessageReceivedByFingerprint(fingerprint: string): void {
+    const profile = this.getOrCreateProfileByFingerprint(fingerprint);
+    profile.history.messagesReceived++;
+    profile.history.lastInteraction = new Date().toISOString();
+    profile.updatedAt = new Date().toISOString();
+    this.scheduleSave();
   }
 
   // ── Trust Level Management ──────────────────────────────────────
@@ -490,7 +587,40 @@ export class AgentTrustManager {
     this.profiles = this.loadProfiles();
   }
 
+  /**
+   * Flush any pending saves and stop the debounce timer.
+   * Call on shutdown for clean exit.
+   */
+  flush(): void {
+    if (this.saveDirty) {
+      this.save();
+      this.saveDirty = false;
+    }
+    if (this.saveTimer) {
+      clearInterval(this.saveTimer);
+      this.saveTimer = null;
+    }
+  }
+
   // ── Private ─────────────────────────────────────────────────────
+
+  /**
+   * Schedule a debounced save (dirty-flag + interval flush).
+   * Avoids synchronous disk writes on every message received.
+   */
+  private scheduleSave(): void {
+    this.saveDirty = true;
+    if (!this.saveTimer) {
+      this.saveTimer = setInterval(() => {
+        if (this.saveDirty) {
+          this.save();
+          this.saveDirty = false;
+        }
+      }, 5000); // Flush every 5 seconds
+      // Don't keep process alive just for this timer
+      if (this.saveTimer.unref) this.saveTimer.unref();
+    }
+  }
 
   private loadProfiles(): Record<string, AgentTrustProfile> {
     const data = safeJsonParse<ProfilesFile>(this.profilesPath, {

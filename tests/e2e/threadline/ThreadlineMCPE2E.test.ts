@@ -669,7 +669,7 @@ describe('ThreadlineMCP E2E', () => {
 
       // Step 1: User lists available tools
       const tools = await e2e.client.listTools();
-      expect(tools.tools.length).toBe(5);
+      expect(tools.tools.length).toBe(6);
 
       // Step 2: User discovers agents
       const discover = await e2e.client.callTool({

@@ -21,6 +21,10 @@ import { HandshakeManager } from './HandshakeManager.js';
 import { AgentDiscovery } from './AgentDiscovery.js';
 import { generateIdentityKeyPair } from './ThreadlineCrypto.js';
 import type { KeyPair } from './ThreadlineCrypto.js';
+import { ThreadlineClient } from './client/ThreadlineClient.js';
+import type { ReceivedMessage } from './client/ThreadlineClient.js';
+import { InboundMessageGate } from './InboundMessageGate.js';
+import { AgentTrustManager } from './AgentTrustManager.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -35,6 +39,16 @@ export interface ThreadlineBootstrapConfig {
   projectDir: string;
   /** Server port */
   port: number;
+  /** Enable cloud relay connection (opt-in, default: false) */
+  relayEnabled?: boolean;
+  /** Cloud relay URL */
+  relayUrl?: string;
+  /** Agent visibility on relay */
+  visibility?: 'public' | 'unlisted' | 'private';
+  /** Agent framework identifier */
+  framework?: string;
+  /** Agent capabilities */
+  capabilities?: string[];
 }
 
 export interface ThreadlineBootstrapResult {
@@ -46,6 +60,12 @@ export interface ThreadlineBootstrapResult {
   identityKeys: KeyPair;
   /** Cleanup function for graceful shutdown */
   shutdown: () => Promise<void>;
+  /** Cloud relay client (if relay is enabled) */
+  relayClient?: ThreadlineClient;
+  /** Inbound message gate (if relay is enabled) */
+  inboundGate?: InboundMessageGate;
+  /** Trust manager */
+  trustManager?: AgentTrustManager;
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -96,12 +116,84 @@ export async function bootstrapThreadline(
   // ── 4. Register MCP server into Claude Code config ───────────────
   registerThreadlineMcp(config.projectDir, config.agentName, config.stateDir);
 
+  // ── 5. Cloud Relay Connection (opt-in) ─────────────────────────
+  const relayEnabled = config.relayEnabled === true
+    || process.env.THREADLINE_RELAY_ENABLED === 'true';
+
+  let relayClient: ThreadlineClient | undefined;
+  let inboundGate: InboundMessageGate | undefined;
+  let trustManager: AgentTrustManager | undefined;
+
+  if (relayEnabled) {
+    const relayUrl = config.relayUrl
+      ?? process.env.THREADLINE_RELAY_URL
+      ?? 'wss://threadline-relay.fly.dev/v1/connect';
+
+    console.log(`Threadline: connecting to relay at ${relayUrl} (disable with THREADLINE_RELAY_ENABLED=false)`);
+
+    // Create trust manager for relay interactions
+    trustManager = new AgentTrustManager({ stateDir: config.stateDir });
+
+    // Create relay client
+    relayClient = new ThreadlineClient({
+      name: config.agentName,
+      relayUrl,
+      framework: config.framework ?? 'instar',
+      capabilities: config.capabilities ?? ['chat', 'threadline'],
+      visibility: config.visibility ?? 'public',
+      stateDir: config.stateDir,
+    });
+
+    // Create inbound message gate (imports ThreadlineRouter lazily if needed)
+    // For now, router is not available at bootstrap time — it's created in server.ts
+    // The gate will be wired to the router after server setup
+    inboundGate = new InboundMessageGate(trustManager, null as any, {
+      maxPayloadBytes: 64 * 1024,
+    });
+
+    // Route inbound relay messages through the gate
+    relayClient.on('message', async (msg: ReceivedMessage) => {
+      if (!inboundGate) return;
+      const decision = await inboundGate.evaluate(msg);
+      if (decision.action === 'pass' && decision.message) {
+        // Gate passed — emit for ThreadlineRouter to handle
+        relayClient!.emit('gate-passed', decision);
+      }
+    });
+
+    // Handle unknown senders with relay-assisted key advertisement
+    relayClient.on('unknown-sender', (envelope: unknown) => {
+      console.log(`Threadline: received message from unknown sender (relay-assisted key exchange needed)`);
+    });
+
+    try {
+      await relayClient.connect();
+      console.log(`Threadline: relay connected (fingerprint: ${relayClient.fingerprint})`);
+    } catch (err) {
+      console.error(`Threadline: relay connection failed — ${err instanceof Error ? err.message : err}`);
+      console.log('Threadline: agent will operate in local-only mode');
+      relayClient = undefined;
+    }
+  }
+
   return {
     handshakeManager,
     discovery,
     identityKeys,
+    trustManager,
+    relayClient,
+    inboundGate,
     shutdown: async () => {
       stopHeartbeat();
+      if (relayClient) {
+        relayClient.disconnect();
+      }
+      if (inboundGate) {
+        inboundGate.shutdown();
+      }
+      if (trustManager) {
+        trustManager.flush();
+      }
     },
   };
 }

@@ -11,7 +11,7 @@ export { ThreadResumeMap } from './ThreadResumeMap.js';
 export type { ThreadResumeEntry, ThreadState } from './ThreadResumeMap.js';
 
 export { ThreadlineRouter } from './ThreadlineRouter.js';
-export type { ThreadlineRouterConfig, ThreadlineHandleResult } from './ThreadlineRouter.js';
+export type { ThreadlineRouterConfig, ThreadlineHandleResult, RelayMessageContext } from './ThreadlineRouter.js';
 
 export { AutonomyGate } from './AutonomyGate.js';
 export type { GateDecision, GateResult, ThreadlineNotifier } from './AutonomyGate.js';
@@ -79,6 +79,7 @@ export { ThreadlineMCPServer } from './ThreadlineMCPServer.js';
 export type {
   ThreadlineMCPServerConfig,
   ThreadlineMCPDeps,
+  RegistryClient,
   SendMessageParams,
   SendMessageResult,
   ThreadHistoryMessage,
@@ -172,6 +173,23 @@ export type { SkillManifest } from './OpenClawSkillManifest.js';
 export { bootstrapThreadline } from './ThreadlineBootstrap.js';
 export type { ThreadlineBootstrapConfig, ThreadlineBootstrapResult } from './ThreadlineBootstrap.js';
 
+// Inbound Message Gate (relay security)
+export { InboundMessageGate } from './InboundMessageGate.js';
+export type { InboundGateConfig, GateDecision as InboundGateDecision } from './InboundMessageGate.js';
+
+// Relay Grounding Preamble (behavioral context for relay messages)
+export { buildRelayGroundingPreamble, tagExternalMessage, RELAY_HISTORY_LIMITS } from './RelayGroundingPreamble.js';
+export type { RelayGroundingContext } from './RelayGroundingPreamble.js';
+
+// Content Classifier (outbound filter, Layer 5)
+export { ContentClassifier, createDisabledClassifier } from './ContentClassifier.js';
+export type {
+  ContentClassification,
+  ClassificationResult,
+  ContentClassifierConfig,
+  ThreadContext,
+} from './ContentClassifier.js';
+
 // Phase 7: Relay Server
 export { RelayServer } from './relay/RelayServer.js';
 export { PresenceRegistry } from './relay/PresenceRegistry.js';
@@ -185,6 +203,8 @@ export { ThreadlineClient } from './client/ThreadlineClient.js';
 export { RelayClient } from './client/RelayClient.js';
 export { MessageEncryptor, computeFingerprint, deriveX25519PublicKey } from './client/MessageEncryptor.js';
 export { IdentityManager } from './client/IdentityManager.js';
+export { RegistryRestClient } from './client/RegistryRestClient.js';
+export type { RegistryRestClientConfig } from './client/RegistryRestClient.js';
 export type {
   ThreadlineClientConfig,
   KnownAgent,

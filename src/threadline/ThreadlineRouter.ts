@@ -21,6 +21,9 @@ import type { MessageStore } from '../messaging/MessageStore.js';
 import type { MessageEnvelope, AgentMessage } from '../messaging/types.js';
 import type { ThreadResumeMap, ThreadResumeEntry, ThreadState } from './ThreadResumeMap.js';
 import type { AutonomyGate } from './AutonomyGate.js';
+import type { AgentTrustLevel } from './AgentTrustManager.js';
+import { buildRelayGroundingPreamble, tagExternalMessage, RELAY_HISTORY_LIMITS } from './RelayGroundingPreamble.js';
+import type { RelayGroundingContext } from './RelayGroundingPreamble.js';
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -32,6 +35,24 @@ export interface ThreadlineRouterConfig {
   localMachine: string;
   /** Max number of thread history messages to inject into context */
   maxHistoryMessages: number;
+}
+
+/** Relay context passed from InboundMessageGate when message arrives via relay */
+export interface RelayMessageContext {
+  /** Sender's cryptographic fingerprint */
+  senderFingerprint: string;
+  /** Sender's display name */
+  senderName: string;
+  /** Trust level of the sender */
+  trustLevel: AgentTrustLevel;
+  /** Who granted trust */
+  trustSource?: string;
+  /** When trust was granted */
+  trustDate?: string;
+  /** Original source fingerprint (for multi-hop) */
+  originFingerprint?: string;
+  /** Original source name */
+  originName?: string;
 }
 
 /** Result of handling an inbound threaded message */
@@ -114,7 +135,7 @@ export class ThreadlineRouter {
    * - Has threadId + existing resume entry → resume session
    * - Has threadId + no resume entry → spawn new session
    */
-  async handleInboundMessage(envelope: MessageEnvelope): Promise<ThreadlineHandleResult> {
+  async handleInboundMessage(envelope: MessageEnvelope, relayContext?: RelayMessageContext): Promise<ThreadlineHandleResult> {
     const { message } = envelope;
 
     // Only handle messages with a threadId that are addressed to us
@@ -173,9 +194,9 @@ export class ThreadlineRouter {
       const existingEntry = this.threadResumeMap.get(threadId);
 
       if (existingEntry) {
-        return await this.resumeThread(threadId, existingEntry, envelope);
+        return await this.resumeThread(threadId, existingEntry, envelope, relayContext);
       } else {
-        return await this.spawnNewThread(threadId, envelope);
+        return await this.spawnNewThread(threadId, envelope, relayContext);
       }
     } catch (err) {
       console.error(`[ThreadlineRouter] Error handling inbound message for thread ${threadId}:`, err);
@@ -234,13 +255,17 @@ export class ThreadlineRouter {
     threadId: string,
     entry: ThreadResumeEntry,
     envelope: MessageEnvelope,
+    relayContext?: RelayMessageContext,
   ): Promise<ThreadlineHandleResult> {
     const { message } = envelope;
 
-    // Build history context
-    const historyContext = await this.buildHistoryContext(threadId);
+    // Build history context (trust-level-aware depth for relay)
+    const maxHistory = relayContext
+      ? RELAY_HISTORY_LIMITS[relayContext.trustLevel]
+      : this.config.maxHistoryMessages;
+    const historyContext = await this.buildHistoryContext(threadId, maxHistory);
 
-    // Build the resume prompt
+    // Build the resume prompt (with grounding preamble if relay)
     const prompt = this.buildPrompt(
       message,
       threadId,
@@ -248,6 +273,7 @@ export class ThreadlineRouter {
       entry.messageCount,
       entry.remoteAgent,
       historyContext,
+      relayContext,
     );
 
     // Spawn with resume UUID
@@ -300,13 +326,17 @@ export class ThreadlineRouter {
   private async spawnNewThread(
     threadId: string,
     envelope: MessageEnvelope,
+    relayContext?: RelayMessageContext,
   ): Promise<ThreadlineHandleResult> {
     const { message } = envelope;
 
     // Build history context (may be empty for brand new threads)
-    const historyContext = await this.buildHistoryContext(threadId);
+    const maxHistory = relayContext
+      ? RELAY_HISTORY_LIMITS[relayContext.trustLevel]
+      : this.config.maxHistoryMessages;
+    const historyContext = await this.buildHistoryContext(threadId, maxHistory);
 
-    // Build the spawn prompt
+    // Build the spawn prompt (with grounding preamble if relay)
     const prompt = this.buildPrompt(
       message,
       threadId,
@@ -314,6 +344,7 @@ export class ThreadlineRouter {
       1,
       message.from.agent,
       historyContext,
+      relayContext,
     );
 
     // Request spawn
@@ -371,8 +402,11 @@ export class ThreadlineRouter {
 
   // ── Private: Build thread history context ───────────────────
 
-  private async buildHistoryContext(threadId: string): Promise<string> {
+  private async buildHistoryContext(threadId: string, maxMessages?: number): Promise<string> {
     try {
+      const limit = maxMessages ?? this.config.maxHistoryMessages;
+      if (limit <= 0) return '';
+
       // Fetch thread info from the messaging system's thread store
       const threadData = await this.messageRouter.getThread(threadId);
       if (!threadData || threadData.messages.length === 0) {
@@ -381,14 +415,14 @@ export class ThreadlineRouter {
 
       // Take the last N messages for context
       const recentMessages = threadData.messages
-        .slice(-this.config.maxHistoryMessages)
+        .slice(-limit)
         .map((env, i) => {
           const msg = env.message;
           return `[${i + 1}] ${msg.from.agent} (${msg.createdAt}):\n${msg.body}`;
         })
         .join('\n\n');
 
-      return `Recent thread history (${Math.min(threadData.messages.length, this.config.maxHistoryMessages)} of ${threadData.messages.length} messages):\n${recentMessages}`;
+      return `Recent thread history (${Math.min(threadData.messages.length, limit)} of ${threadData.messages.length} messages):\n${recentMessages}`;
     } catch {
       // @silent-fallback-ok — thread history is supplementary context; missing it degrades but doesn't break
       return '';
@@ -404,12 +438,13 @@ export class ThreadlineRouter {
     messageCount: number,
     remoteAgent: string,
     historyContext: string,
+    relayContext?: RelayMessageContext,
   ): string {
     const historySection = historyContext
       ? `${historyContext}\n`
       : 'No previous history available.\n';
 
-    return THREAD_SPAWN_PROMPT_TEMPLATE
+    const basePrompt = THREAD_SPAWN_PROMPT_TEMPLATE
       .replace('{remote_agent}', remoteAgent)
       .replace('{remote_agent}', remoteAgent)
       .replace('{thread_id}', threadId)
@@ -418,5 +453,23 @@ export class ThreadlineRouter {
       .replace('{history_section}', historySection)
       .replace('{latest_subject}', latestMessage.subject)
       .replace('{latest_body}', latestMessage.body);
+
+    // If relay context is present, wrap with grounding preamble
+    if (relayContext) {
+      const grounding = buildRelayGroundingPreamble({
+        agentName: this.config.localAgent,
+        senderName: relayContext.senderName,
+        senderFingerprint: relayContext.senderFingerprint,
+        trustLevel: relayContext.trustLevel,
+        trustSource: relayContext.trustSource,
+        trustDate: relayContext.trustDate,
+        originFingerprint: relayContext.originFingerprint,
+        originName: relayContext.originName,
+      });
+
+      return `${grounding.header}\n\n${basePrompt}\n\n${grounding.footer}`;
+    }
+
+    return basePrompt;
   }
 }

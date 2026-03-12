@@ -1,8 +1,8 @@
 {
   "$schema": "./builtin-manifest.schema.json",
   "schemaVersion": 1,
-  "generatedAt": "2026-03-10T09:02:05.748Z",
-  "instarVersion": "0.17.9",
+  "generatedAt": "2026-03-12T02:09:02.980Z",
+  "instarVersion": "0.18.0",
   "entryCount": 168,
   "entries": {
     "hook:session-start": {
@@ -655,7 +655,7 @@
       "type": "cli-command",
       "domain": "setup",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:setup": {
@@ -663,7 +663,7 @@
       "type": "cli-command",
       "domain": "setup",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:add": {
@@ -671,7 +671,7 @@
       "type": "cli-command",
       "domain": "setup",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:backup": {
@@ -679,7 +679,7 @@
       "type": "cli-command",
       "domain": "operations",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:git": {
@@ -687,7 +687,7 @@
       "type": "cli-command",
       "domain": "coordination",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:memory": {
@@ -695,7 +695,7 @@
       "type": "cli-command",
       "domain": "memory",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:knowledge": {
@@ -703,7 +703,7 @@
       "type": "cli-command",
       "domain": "memory",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:semantic": {
@@ -711,7 +711,7 @@
       "type": "cli-command",
       "domain": "memory",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:intent": {
@@ -719,7 +719,7 @@
       "type": "cli-command",
       "domain": "intent",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:feedback": {
@@ -727,7 +727,7 @@
       "type": "cli-command",
       "domain": "feedback",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:server": {
@@ -735,7 +735,7 @@
       "type": "cli-command",
       "domain": "server",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:status": {
@@ -743,7 +743,7 @@
       "type": "cli-command",
       "domain": "monitoring",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:user": {
@@ -751,7 +751,7 @@
       "type": "cli-command",
       "domain": "users",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:relationship": {
@@ -759,7 +759,7 @@
       "type": "cli-command",
       "domain": "relationships",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:job": {
@@ -767,7 +767,7 @@
       "type": "cli-command",
       "domain": "scheduling",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:lifeline": {
@@ -775,7 +775,7 @@
       "type": "cli-command",
       "domain": "communication",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:list": {
@@ -783,7 +783,7 @@
       "type": "cli-command",
       "domain": "monitoring",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:autostart": {
@@ -791,7 +791,7 @@
       "type": "cli-command",
       "domain": "operations",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:migrate": {
@@ -799,7 +799,7 @@
       "type": "cli-command",
       "domain": "updates",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:machines": {
@@ -807,7 +807,7 @@
       "type": "cli-command",
       "domain": "coordination",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:whoami": {
@@ -815,7 +815,7 @@
       "type": "cli-command",
       "domain": "identity",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:pair": {
@@ -823,7 +823,7 @@
       "type": "cli-command",
       "domain": "coordination",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:join": {
@@ -831,7 +831,7 @@
       "type": "cli-command",
       "domain": "coordination",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:wakeup": {
@@ -839,7 +839,7 @@
       "type": "cli-command",
       "domain": "coordination",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:leave": {
@@ -847,7 +847,7 @@
       "type": "cli-command",
       "domain": "coordination",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:doctor": {
@@ -855,7 +855,7 @@
       "type": "cli-command",
       "domain": "monitoring",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:review": {
@@ -863,7 +863,7 @@
       "type": "cli-command",
       "domain": "monitoring",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:nuke": {
@@ -871,7 +871,7 @@
       "type": "cli-command",
       "domain": "operations",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "cli:playbook": {
@@ -879,7 +879,7 @@
       "type": "cli-command",
       "domain": "context",
       "sourcePath": "src/cli.ts",
-      "contentHash": "2950b24a3a8d41a6e851c1b0b2e5786c32fa33244fd65a823317cded08749c10",
+      "contentHash": "8d5d4655a75f138af5d63ac9d95b6d9e6d71042f9415e8ad1459c806f5786d65",
       "since": "2025-01-01"
     },
     "template:compaction-recovery.sh": {
@@ -919,7 +919,7 @@
       "type": "template",
       "domain": "safety",
       "sourcePath": "src/templates/hooks/session-start.sh",
-      "contentHash": "407bcaa52499cfa4cd3cb00d15db6c1393f1738dca85db228751798f9706cf55",
+      "contentHash": "327190603b929381c8d6e83b1d93b5a04891c8455d085999e11ff587c84114bf",
       "since": "2025-01-01"
     },
     "template:settings-template.json": {
@@ -1263,7 +1263,7 @@
       "type": "subsystem",
       "domain": "sessions",
       "sourcePath": "src/core/SessionManager.ts",
-      "contentHash": "733adde5b467fccfd3cf7fb4a33e678a9406257fa4d3098695d5a05428f74ede",
+      "contentHash": "93246340e78ed252af7f033afdf258550efdfc1a0dcfa3145555618c5033bd08",
       "since": "2025-01-01"
     },
     "subsystem:auto-updater": {
@@ -1295,7 +1295,7 @@
       "type": "subsystem",
       "domain": "scheduling",
       "sourcePath": "src/scheduler/JobScheduler.ts",
-      "contentHash": "14d877d40eb3ac124e0f830d70d9a94799cb726a9b819845ec72f1adb8e172b7",
+      "contentHash": "54a99d30e87adfb7fa721c5c42578ad33fdb647e5c31c6e83e8600b55aaf37c8",
       "since": "2025-01-01"
     },
     "subsystem:project-mapper": {
@@ -1311,7 +1311,7 @@
       "type": "subsystem",
       "domain": "monitoring",
       "sourcePath": "src/monitoring/DegradationReporter.ts",
-      "contentHash": "6dddf674671bf02527d730f05a39796b5686301632a26eee870a572255011324",
+      "contentHash": "bfb9e965d087054cf32d626ce1b5383a45f0d0f1a5a19a7d9e6644451dd17290",
       "since": "2025-01-01"
     },
     "subsystem:telegram-lifeline": {

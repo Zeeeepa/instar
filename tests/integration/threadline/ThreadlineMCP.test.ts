@@ -612,7 +612,7 @@ describe('ThreadlineMCP Integration', () => {
       ctx = await createIntegrationContext();
 
       const tools = await ctx.client.listTools();
-      expect(tools.tools).toHaveLength(5);
+      expect(tools.tools).toHaveLength(6);
 
       // Verify each tool has input schema
       for (const tool of tools.tools) {
