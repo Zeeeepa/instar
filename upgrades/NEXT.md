@@ -4,21 +4,23 @@
 
 ## What Changed
 
-### Sentinel: Unparseable LLM Responses No Longer Disrupt Sessions
+### Sentinel: Robust Category Extraction from LLM Responses
 
-Two fixes to the MessageSentinel's handling of unparseable LLM classification responses:
+The MessageSentinel's LLM classification now uses multi-layer parsing instead of requiring an exact single-word response:
 
-1. **Default changed from "pause" to "pass-through"**: When the classification LLM returns a conversational response instead of a single category word, the sentinel now defaults to `normal` (pass-through) instead of `pause`. This prevents false session pauses caused by classification failures — if the classifier can't do its job, the result is unreliable and shouldn't disrupt the session.
+1. **Exact match** (ideal): Response is just the category word — works as before.
+2. **Extraction** (new): For short responses (<100 chars) that contain a valid category word, the category is extracted. Example: "The classification is: normal" → extracts `normal`. Confidence is reduced (0.6 vs 0.8) to reflect the extraction.
+3. **Rejection**: Responses over 100 characters are treated as context-contaminated conversational responses and rejected (pass-through). This catches the case where the LLM gets CLAUDE.md injected and writes paragraphs instead of classifying.
 
-2. **Sentinel reasons never shown to users**: Previously, a substring check (`includes('unparseable')`) was supposed to sanitize raw LLM responses before they reached Telegram. This check was bypassed in some environments. The fix removes reason text from user-facing messages entirely — reasons are logged server-side only. User messages now show clean text: "Session paused." or "Session terminated." without any internal classification details.
+Priority order when multiple categories appear in an extracted response: emergency-stop > pause > redirect > normal. This ensures safety-first ordering.
 
 ## What to Tell Your User
 
-- **Cleaner session messages**: Your agent will no longer show confusing internal messages when pausing or stopping sessions. Messages are now short and clean.
+- **Smarter message classification**: Your agent's safety system is now better at understanding its own internal responses, which means fewer false pauses and interruptions during normal conversation.
 
 ## Summary of New Capabilities
 
 | Capability | How to Use |
 |-----------|-----------|
-| Robust sentinel message sanitization | Automatic — internal reasons logged server-side, never shown to users |
-| Pass-through on unparseable classification | Automatic — failed classifications no longer falsely pause sessions |
+| Multi-layer LLM response parsing | Automatic — extracts valid classifications from verbose responses |
+| Length-based rejection for contaminated responses | Automatic — responses >100 chars are treated as unreliable |

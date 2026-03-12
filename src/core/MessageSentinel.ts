@@ -392,13 +392,9 @@ export class MessageSentinel {
         temperature: 0,
       });
 
-      const category = response.trim().toLowerCase() as SentinelCategory;
-      const validCategories: SentinelCategory[] = ['emergency-stop', 'pause', 'redirect', 'normal'];
+      const parsed = this.extractCategory(response);
 
-      if (!validCategories.includes(category)) {
-        // Unparseable → pass through. If the LLM can't return a single word,
-        // the classification is unreliable — don't disrupt the session based
-        // on garbage output. Log it for debugging.
+      if (!parsed) {
         console.warn(`[sentinel] LLM returned unparseable response: "${response.trim().slice(0, 200)}"`);
         return {
           category: 'normal',
@@ -409,10 +405,10 @@ export class MessageSentinel {
       }
 
       return {
-        category,
-        confidence: 0.8,
-        action: this.categoryToAction(category, message),
-        reason: `LLM classification: ${category}`,
+        category: parsed.category,
+        confidence: parsed.exact ? 0.8 : 0.6,
+        action: this.categoryToAction(parsed.category, message),
+        reason: `LLM classification: ${parsed.category}${parsed.exact ? '' : ' (extracted)'}`,
       };
     } catch {
       // LLM failure → pass through (don't block on evaluation errors)
@@ -423,6 +419,47 @@ export class MessageSentinel {
         reason: 'LLM classification failed, defaulting to pass-through',
       };
     }
+  }
+
+  /**
+   * Extract a valid category from an LLM response.
+   *
+   * Handles three cases:
+   * 1. Exact match: response is just the category word (ideal)
+   * 2. Extracted: response contains the category word in a sentence
+   *    (e.g., "I would classify this as normal")
+   * 3. null: no valid category found in the response
+   *
+   * Priority order when multiple categories appear: emergency-stop > pause > redirect > normal.
+   * This ensures that if the LLM says "this is normal, not emergency-stop", the higher-priority
+   * category wins — erring toward caution.
+   */
+  private extractCategory(response: string): { category: SentinelCategory; exact: boolean } | null {
+    const trimmed = response.trim().toLowerCase();
+    const validCategories: SentinelCategory[] = ['emergency-stop', 'pause', 'redirect', 'normal'];
+
+    // Exact match — ideal case
+    if (validCategories.includes(trimmed as SentinelCategory)) {
+      return { category: trimmed as SentinelCategory, exact: true };
+    }
+
+    // If the response is longer than ~100 chars, it's a conversational response
+    // from a context-contaminated LLM — don't try to extract from it
+    if (trimmed.length > 100) {
+      return null;
+    }
+
+    // Try to extract: check for category words as whole words in the response.
+    // Check in priority order (most disruptive first).
+    const priorityOrder: SentinelCategory[] = ['emergency-stop', 'pause', 'redirect', 'normal'];
+    for (const cat of priorityOrder) {
+      const pattern = new RegExp(`\\b${cat.replace('-', '[-\\s]')}\\b`, 'i');
+      if (pattern.test(trimmed)) {
+        return { category: cat, exact: false };
+      }
+    }
+
+    return null;
   }
 
   /**

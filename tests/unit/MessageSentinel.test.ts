@@ -311,6 +311,54 @@ describe('MessageSentinel', () => {
       expect(result.action.type).toBe('pass-through');
     });
 
+    it('extracts category from verbose LLM response (short)', async () => {
+      sentinel = new MessageSentinel({
+        intelligence: {
+          evaluate: async () => 'The classification is: normal',
+        },
+      });
+
+      const result = await sentinel.classify('please proceed');
+      expect(result.category).toBe('normal');
+      expect(result.reason).toContain('extracted');
+    });
+
+    it('extracts emergency-stop from verbose LLM response', async () => {
+      sentinel = new MessageSentinel({
+        intelligence: {
+          evaluate: async () => 'This is an emergency-stop signal',
+        },
+      });
+
+      const result = await sentinel.classify('STOP RIGHT NOW');
+      expect(result.category).toBe('emergency-stop');
+    });
+
+    it('rejects long conversational responses (>100 chars)', async () => {
+      sentinel = new MessageSentinel({
+        intelligence: {
+          evaluate: async () => 'You are right. I have been heads-down on implementation without checking the design scope. I can see you have got several planning documents that define the broader context.',
+        },
+      });
+
+      const result = await sentinel.classify('please proceed');
+      expect(result.category).toBe('normal');
+      expect(result.action.type).toBe('pass-through');
+      expect(result.confidence).toBeLessThan(0.5);
+    });
+
+    it('prioritizes higher-severity category when multiple appear', async () => {
+      sentinel = new MessageSentinel({
+        intelligence: {
+          evaluate: async () => 'not normal, this is a pause',
+        },
+      });
+
+      const result = await sentinel.classify('hold on');
+      // "pause" should win over "normal" since it's checked first
+      expect(result.category).toBe('pause');
+    });
+
     it('long messages with stop-like words route to LLM (word count gate)', async () => {
       let llmCalled = false;
       sentinel = new MessageSentinel({
