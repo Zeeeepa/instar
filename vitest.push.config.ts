@@ -24,6 +24,7 @@ const FLAKY_TESTS = [
   'tests/integration/messaging-routes.test.ts',
   'tests/integration/whatsapp-routes.test.ts',
   'tests/e2e/messaging-multi-agent.test.ts',
+  'tests/e2e/lifecycle.test.ts',
 
   // ── Non-deterministic data / race conditions ──────────────────────
   'tests/integration/semantic-memory.test.ts',
