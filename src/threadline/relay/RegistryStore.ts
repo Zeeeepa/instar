@@ -78,12 +78,14 @@ export interface RegistryStoreConfig {
 
 export function sanitizeFTS5Query(q: string): string {
   let sanitized = q
-    .replace(/[*"^():{}\[\]]/g, ' ')           // strip special chars
-    .replace(/\b(NEAR|AND|OR|NOT)\b/gi, ' ')   // strip operators
+    .replace(/[*"^():{}\[\]\-]/g, ' ')          // strip special chars (incl. hyphen — FTS5 interprets as column filter)
+    .replace(/\b(NEAR|AND|OR|NOT)\b/gi, ' ')    // strip operators
     .replace(/\s+/g, ' ')                        // collapse whitespace
     .trim();
   if (!sanitized) return '';
-  return sanitized;
+  // Quote each token to prevent FTS5 column-filter interpretation
+  const tokens = sanitized.split(' ').filter(Boolean);
+  return tokens.map(t => `"${t}"`).join(' ');
 }
 
 // ── Unicode Sanitization ─────────────────────────────────────────────

@@ -2583,6 +2583,19 @@ export async function startServer(options: StartOptions): Promise<void> {
     });
     console.log(pc.green(`  Private viewer enabled`));
 
+    // Set up paste manager (Drop Zone — always enabled)
+    const { PasteManager } = await import('../paste/PasteManager.js');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- paste config fields are optional extensions
+    const cfgAny = config as any;
+    const pasteManager = new PasteManager({
+      pasteDir: path.join(config.stateDir, 'paste'),
+      stateDir: path.join(config.stateDir, 'state'),
+      projectDir: config.projectDir,
+      maxSizeBytes: cfgAny.pasteMaxSizeMB ? cfgAny.pasteMaxSizeMB * 1024 * 1024 : undefined,
+      retentionDays: cfgAny.pasteRetentionDays ?? undefined,
+    });
+    console.log(pc.green(`  Drop Zone (paste) enabled`));
+
     // Set up Cloudflare Tunnel — enabled by default (quick tunnel, zero-config)
     // Only disabled if explicitly set to tunnel.enabled = false
     const tunnelEnabled = config.tunnel?.enabled !== false;
@@ -3349,7 +3362,7 @@ export async function startServer(options: StartOptions): Promise<void> {
       }
     }
 
-    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate: scopeVerifier, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, capabilityMapper, selfKnowledgeTree, coverageAuditor, topicResumeMap: _topicResumeMap ?? undefined, autonomyManager, trustElevationTracker, autonomousEvolution, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem, whatsapp: whatsappAdapter, whatsappBusinessBackend, messageBridge, hookEventReceiver, worktreeMonitor, subagentTracker, instructionsVerifier, handshakeManager: threadlineHandshake, threadlineRelayClient, responseReviewGate, telemetryHeartbeat, liveConfig });
+    const server = new AgentServer({ config, sessionManager, state, scheduler, telegram, relationships, feedback, feedbackAnomalyDetector, dispatches, updateChecker, autoUpdater, autoDispatcher, quotaTracker, quotaManager, publisher, viewer, tunnel, evolution, watchdog, topicMemory, triageNurse, projectMapper, coherenceGate: scopeVerifier, contextHierarchy, canonicalState, operationGate, sentinel, adaptiveTrust, memoryMonitor, orphanReaper, coherenceMonitor, commitmentTracker, semanticMemory, activitySentinel, messageRouter, summarySentinel, spawnManager, systemReviewer, capabilityMapper, selfKnowledgeTree, coverageAuditor, topicResumeMap: _topicResumeMap ?? undefined, autonomyManager, trustElevationTracker, autonomousEvolution, coordinator: coordinator.enabled ? coordinator : undefined, localSigningKeyPem, whatsapp: whatsappAdapter, whatsappBusinessBackend, messageBridge, hookEventReceiver, worktreeMonitor, subagentTracker, instructionsVerifier, handshakeManager: threadlineHandshake, threadlineRelayClient, responseReviewGate, telemetryHeartbeat, pasteManager, liveConfig });
     await server.start();
 
     // Connect DegradationReporter downstream systems now that everything is initialized.

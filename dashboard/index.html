@@ -1295,6 +1295,7 @@
         <nav class="tab-bar">
           <button class="tab active" data-tab="sessions" onclick="switchTab('sessions')">Sessions <span class="tab-count" id="tabSessionCount">0</span></button>
           <button class="tab" data-tab="files" onclick="switchTab('files')">Files</button>
+          <button class="tab" data-tab="dropzone" onclick="switchTab('dropzone')">Drop Zone</button>
         </nav>
       </div>
       <button class="wa-status-btn" id="waStatusBtn" onclick="toggleQrPanel()">WhatsApp</button>
@@ -1392,6 +1393,45 @@
         <button class="btn btn-overwrite" onclick="handleConflictOverwrite()">Overwrite</button>
         <button class="btn btn-reload" onclick="handleConflictReload()">Reload</button>
         <button class="btn btn-dismiss" onclick="hideConflictDialog()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drop Zone tab -->
+  <div class="dropzone-container" id="dropzoneTab" style="display:none">
+    <div class="dropzone-panel">
+      <div class="dropzone-header">
+        <h2>Drop Zone</h2>
+        <p class="dropzone-subtitle">Send large text content to your agent session</p>
+      </div>
+
+      <div class="dropzone-form">
+        <input type="text" class="dropzone-label" id="dzLabel"
+          placeholder="What is this? (optional)" maxlength="256">
+
+        <div class="dropzone-textarea-wrap">
+          <textarea class="dropzone-textarea" id="dzContent"
+            placeholder="Paste your content here..."
+            oninput="updateDzCount()"></textarea>
+          <div class="dropzone-count" id="dzCount">0 chars &middot; ~0 tokens</div>
+        </div>
+
+        <div class="dropzone-actions">
+          <select class="dropzone-session-select" id="dzSession">
+            <option value="">Auto (most recent session)</option>
+          </select>
+          <button class="dropzone-send-btn" id="dzSendBtn" onclick="sendPaste()">Send</button>
+        </div>
+        <div class="dropzone-disclosure">Stored locally for up to 7 days. Avoid pasting secrets or credentials.</div>
+      </div>
+
+      <div class="dropzone-status" id="dzStatus" style="display:none"></div>
+
+      <div class="dropzone-history">
+        <h3>Recent Pastes</h3>
+        <div class="dropzone-history-list" id="dzHistoryList">
+          <div class="dropzone-empty">No pastes yet</div>
+        </div>
       </div>
     </div>
   </div>

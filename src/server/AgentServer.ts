@@ -52,6 +52,7 @@ export class AgentServer {
   private sessionManager: SessionManager;
   private state: StateManager;
   private hookEventReceiver?: import('../monitoring/HookEventReceiver.js').HookEventReceiver;
+  private routeContext: { wsManager: import('./WebSocketManager.js').WebSocketManager | null } | null = null;
 
   constructor(options: {
     config: InstarConfig;
@@ -114,6 +115,7 @@ export class AgentServer {
     threadlineRelayClient?: import('../threadline/client/ThreadlineClient.js').ThreadlineClient;
     responseReviewGate?: import('../core/CoherenceGate.js').CoherenceGate;
     telemetryHeartbeat?: import('../monitoring/TelemetryHeartbeat.js').TelemetryHeartbeat;
+    pasteManager?: import('../paste/PasteManager.js').PasteManager;
     liveConfig?: { set(path: string, value: unknown): void };
   }) {
     this.config = options.config;
@@ -124,7 +126,7 @@ export class AgentServer {
     this.app = express();
 
     // Middleware
-    this.app.use(express.json({ limit: '1mb' }));
+    this.app.use(express.json({ limit: '12mb' }));
     this.app.use(corsMiddleware);
 
     // Dashboard static files — served BEFORE auth middleware so the page loads
@@ -232,7 +234,7 @@ export class AgentServer {
     this.app.use(requestTimeout(options.config.requestTimeoutMs));
 
     // Routes
-    const routes = createRoutes({
+    const routeCtx = {
       config: options.config,
       sessionManager: options.sessionManager,
       state: options.state,
@@ -290,8 +292,12 @@ export class AgentServer {
       threadlineRelayClient: options.threadlineRelayClient ?? null,
       responseReviewGate: options.responseReviewGate ?? null,
       telemetryHeartbeat: options.telemetryHeartbeat ?? null,
+      pasteManager: options.pasteManager ?? null,
+      wsManager: null, // Set after WebSocket manager is initialized
       startTime: this.startTime,
-    });
+    };
+    this.routeContext = routeCtx;
+    const routes = createRoutes(routeCtx);
     this.app.use(routes);
 
     // File viewer routes (after auth middleware)
@@ -337,6 +343,11 @@ export class AgentServer {
           instarDir: this.config.stateDir,
           hookEventReceiver: this.hookEventReceiver,
         });
+
+        // Update route context with WebSocket manager (deferred — created after routes)
+        if (this.routeContext) {
+          this.routeContext.wsManager = this.wsManager;
+        }
 
         resolve();
       });

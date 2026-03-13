@@ -340,6 +340,20 @@ export class WebSocketManager {
     this.send(ws, { type: 'sessions', sessions });
   }
 
+  /**
+   * Broadcast a custom event to all connected dashboard clients.
+   * Used by PasteManager for paste_delivered / paste_acknowledged events.
+   */
+  broadcastEvent(event: Record<string, unknown>): void {
+    if (this.clients.size === 0) return;
+    const msg = JSON.stringify(event);
+    for (const client of this.clients.values()) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(msg);
+      }
+    }
+  }
+
   private broadcastSessionList(): void {
     if (this.clients.size === 0) return;
     const sessions = this.buildSessionList();

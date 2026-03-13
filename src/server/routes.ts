@@ -79,6 +79,8 @@ import type { WorktreeMonitor } from '../monitoring/WorktreeMonitor.js';
 import type { SubagentTracker } from '../monitoring/SubagentTracker.js';
 import type { InstructionsVerifier } from '../monitoring/InstructionsVerifier.js';
 import type { CoherenceGate } from '../core/CoherenceGate.js';
+import type { PasteManager } from '../paste/PasteManager.js';
+import type { WebSocketManager } from './WebSocketManager.js';
 
 export interface RouteContext {
   config: InstarConfig;
@@ -138,6 +140,8 @@ export interface RouteContext {
   threadlineRelayClient: import('../threadline/client/ThreadlineClient.js').ThreadlineClient | null;
   responseReviewGate: CoherenceGate | null;
   telemetryHeartbeat: import('../monitoring/TelemetryHeartbeat.js').TelemetryHeartbeat | null;
+  pasteManager: PasteManager | null;
+  wsManager: WebSocketManager | null;
   startTime: Date;
 }
 
@@ -6012,6 +6016,156 @@ export function createRoutes(ctx: RouteContext): Router {
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Canary test failed' });
     }
+  });
+
+  // ── Paste / Drop Zone ─────────────────────────────────────────────
+
+  const pasteLimiter = rateLimiter(60_000, 10);
+
+  router.post('/pastes', pasteLimiter, (req, res) => {
+    if (!ctx.pasteManager) {
+      res.status(503).json({ error: 'Paste system not available' });
+      return;
+    }
+
+    const { content, label, targetSession } = req.body;
+    if (!content || typeof content !== 'string') {
+      res.status(400).json({ ok: false, error: 'validation_error', message: '"content" must be a non-empty string' });
+      return;
+    }
+    if (label !== undefined && (typeof label !== 'string' || label.length > 256)) {
+      res.status(400).json({ ok: false, error: 'validation_error', message: '"label" must be a string under 256 characters' });
+      return;
+    }
+    if (targetSession !== undefined && typeof targetSession !== 'string') {
+      res.status(400).json({ ok: false, error: 'validation_error', message: '"targetSession" must be a string' });
+      return;
+    }
+
+    try {
+      const result = ctx.pasteManager.create(content, {
+        label,
+        from: 'dashboard',
+        targetSession,
+      });
+
+      // Try to deliver to an active session
+      const paste = ctx.pasteManager.getMeta(result.pasteId);
+      if (!paste) {
+        res.status(500).json({ ok: false, error: 'internal', message: 'Paste created but metadata not readable' });
+        return;
+      }
+
+      // Find target session — use specified, or most recent interactive
+      let deliveredToSession: string | undefined;
+      const sessions = ctx.sessionManager.listRunningSessions();
+      const interactiveSessions = sessions.filter(s => !s.jobSlug);
+
+      if (targetSession) {
+        const match = interactiveSessions.find(s => s.name === targetSession);
+        if (match) deliveredToSession = match.name;
+      } else if (interactiveSessions.length > 0) {
+        // Default: most recently active interactive session
+        deliveredToSession = interactiveSessions[0].name;
+      }
+
+      if (deliveredToSession) {
+        // Inject notification
+        const notification = ctx.pasteManager.buildNotification(paste);
+        ctx.sessionManager.injectPasteNotification(deliveredToSession, notification);
+        ctx.pasteManager.updateStatus(result.pasteId, 'notified');
+        result.status = 'notified';
+        result.sessionName = deliveredToSession;
+
+        // Broadcast WebSocket event
+        if (ctx.wsManager) {
+          ctx.wsManager.broadcastEvent({
+            type: 'paste_delivered',
+            pasteId: result.pasteId,
+            session: deliveredToSession,
+            contentLength: result.contentLength,
+            label,
+          });
+        }
+      } else {
+        // Queue for later delivery
+        ctx.pasteManager.addPending(paste);
+      }
+
+      res.status(201).json(result);
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'statusCode' in err) {
+        const pasteErr = err as { statusCode: number; code: string; message: string };
+        res.status(pasteErr.statusCode).json({
+          ok: false,
+          error: pasteErr.code,
+          message: pasteErr.message,
+        });
+        return;
+      }
+      res.status(500).json({ ok: false, error: 'internal', message: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  });
+
+  router.get('/pastes', (_req, res) => {
+    if (!ctx.pasteManager) {
+      res.status(503).json({ error: 'Paste system not available' });
+      return;
+    }
+
+    const pastes = ctx.pasteManager.list().map(p => ({
+      pasteId: p.pasteId,
+      label: p.label,
+      from: p.from,
+      timestamp: p.timestamp,
+      status: p.status,
+      targetSession: p.targetSession,
+      contentLength: p.contentLength,
+      expiresAt: p.expiresAt,
+    }));
+
+    res.json({ ok: true, pastes, stats: ctx.pasteManager.getStats() });
+  });
+
+  router.get('/pastes/:id', (req, res) => {
+    if (!ctx.pasteManager) {
+      res.status(503).json({ error: 'Paste system not available' });
+      return;
+    }
+
+    const result = ctx.pasteManager.getContent(req.params.id);
+    if (!result) {
+      res.status(404).json({ ok: false, error: 'not_found', message: 'Paste not found' });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      pasteId: result.meta.pasteId,
+      label: result.meta.label,
+      from: result.meta.from,
+      timestamp: result.meta.timestamp,
+      status: result.meta.status,
+      targetSession: result.meta.targetSession,
+      contentLength: result.meta.contentLength,
+      expiresAt: result.meta.expiresAt,
+      content: result.content,
+    });
+  });
+
+  router.delete('/pastes/:id', (req, res) => {
+    if (!ctx.pasteManager) {
+      res.status(503).json({ error: 'Paste system not available' });
+      return;
+    }
+
+    const deleted = ctx.pasteManager.delete(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ ok: false, error: 'not_found', message: 'Paste not found' });
+      return;
+    }
+
+    res.json({ ok: true, deleted: true });
   });
 
   return router;

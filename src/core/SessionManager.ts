@@ -787,6 +787,30 @@ export class SessionManager extends EventEmitter {
    * transformed into explicit instructions so Claude Code knows to read the
    * image file (it can natively view images via the Read tool).
    */
+  /**
+   * Inject a paste notification into a tmux session.
+   * Uses the same injection path as Telegram/WhatsApp messages
+   * so InputGuard provenance checks apply.
+   */
+  injectPasteNotification(tmuxSession: string, notification: string): void {
+    const FILE_THRESHOLD = 500;
+
+    if (notification.length <= FILE_THRESHOLD) {
+      this.injectMessage(tmuxSession, notification);
+      return;
+    }
+
+    // Write to temp file for large notifications
+    const tmpDir = path.join('/tmp', 'instar-paste');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const filename = `paste-notify-${Date.now()}-${randomUUID().slice(0, 8)}.txt`;
+    const filepath = path.join(tmpDir, filename);
+    fs.writeFileSync(filepath, notification);
+
+    const ref = `[paste] Content notification saved to ${filepath} — read it to see the details.`;
+    this.injectMessage(tmuxSession, ref);
+  }
+
   injectTelegramMessage(tmuxSession: string, topicId: number, text: string, topicName?: string, senderName?: string, telegramUserId?: number): void {
     const FILE_THRESHOLD = 500;
 
