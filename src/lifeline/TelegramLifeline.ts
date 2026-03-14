@@ -260,6 +260,11 @@ export class TelegramLifeline {
         if (installed) {
           console.log(pc.green(`  Auto-start self-healed: installed ${process.platform === 'darwin' ? 'LaunchAgent' : 'systemd service'}`));
         }
+      } else {
+        // Self-healing: validate plist uses boot wrapper, not a hardcoded Node path.
+        // Older agents may have plists pointing to a specific Node version that no longer exists.
+        // The boot wrapper pattern resolves the shadow install at runtime — Node version independent.
+        this.selfHealPlist();
       }
     } catch {
       // Non-critical — don't crash the lifeline over autostart
@@ -292,8 +297,10 @@ export class TelegramLifeline {
       for (const update of updates) {
         await this.processUpdate(update);
         this.lastUpdateId = Math.max(this.lastUpdateId, update.update_id);
+        // Save offset after each update so a crash mid-batch doesn't re-deliver
+        // messages that were already processed.
+        this.saveOffset();
       }
-      if (updates.length > 0) this.saveOffset();
       // Success — reset 409 backoff
       this.consecutive409s = 0;
       this.pollBackoffMs = this.config.pollIntervalMs ?? 2000;
@@ -339,6 +346,15 @@ export class TelegramLifeline {
     // Handle lifeline-specific commands directly (bypass server)
     if (text.startsWith('/lifeline')) {
       await this.handleLifelineCommand(text, topicId, msg.from.id);
+      return;
+    }
+
+    // Intercept /restart when server is down — treat as /lifeline restart
+    // This solves the dead man's switch: /restart gets queued when the server is down,
+    // but that's exactly when you need it most. Route it to the lifeline instead.
+    if (text.trim().toLowerCase() === '/restart' && !this.supervisor.healthy) {
+      console.log(`[Lifeline] Intercepting /restart (server is down) — treating as /lifeline restart`);
+      await this.handleLifelineCommand('/lifeline restart', topicId, msg.from.id);
       return;
     }
 
@@ -1123,6 +1139,42 @@ export class TelegramLifeline {
   }
 
   /**
+   * Self-heal the launchd plist if it uses a hardcoded Node path instead of the boot wrapper.
+   *
+   * Older agents (pre-boot-wrapper) had plists pointing directly to a Node binary path like
+   * /Users/x/.asdf/installs/nodejs/24.13.1/bin/instar. When Node versions change (asdf, nvm),
+   * the path breaks and the agent becomes unrecoverable after a reboot or restart.
+   *
+   * The boot wrapper pattern resolves the shadow install at runtime — immune to Node version changes.
+   * If the plist doesn't use the boot wrapper, regenerate both the wrapper and the plist.
+   */
+  private async selfHealPlist(): Promise<void> {
+    if (process.platform !== 'darwin') return;
+
+    const label = `ai.instar.${this.projectConfig.projectName}`;
+    const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', `${label}.plist`);
+
+    try {
+      const content = fs.readFileSync(plistPath, 'utf-8');
+
+      // Check if plist already uses the boot wrapper
+      if (content.includes('instar-boot.sh')) return;
+
+      // Plist uses old pattern (hardcoded node/instar path) — regenerate
+      console.log(`[Lifeline] Detected old-style plist without boot wrapper — self-healing`);
+
+      // Regenerate both boot wrapper and plist via installAutoStart (which calls installBootWrapper)
+      const { installAutoStart } = await import('../commands/setup.js');
+      const installed = installAutoStart(this.projectConfig.projectName, this.projectConfig.projectDir, true);
+      if (installed) {
+        console.log(`[Lifeline] Plist self-healed: now uses boot wrapper (Node-version independent)`);
+      }
+    } catch (err) {
+      console.warn(`[Lifeline] Plist self-heal failed (non-critical): ${err}`);
+    }
+  }
+
+  /**
    * Ensure the Lifeline topic exists. Recreates if deleted.
    */
   private async ensureLifelineTopic(): Promise<number | null> {
@@ -1282,6 +1334,10 @@ export class TelegramLifeline {
       const tmpPath = `${this.offsetPath}.${process.pid}.tmp`;
       fs.writeFileSync(tmpPath, JSON.stringify({ lastUpdateId: this.lastUpdateId }));
       fs.renameSync(tmpPath, this.offsetPath);
-    } catch { /* non-critical */ }
+    } catch (err) {
+      // If offset can't be persisted, log a warning — silent failure here means
+      // re-delivered messages on next restart, which is confusing to diagnose.
+      console.warn(`[Lifeline] Failed to save offset (update_id=${this.lastUpdateId}): ${err}`);
+    }
   }
 }

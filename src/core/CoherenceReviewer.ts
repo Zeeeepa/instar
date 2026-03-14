@@ -219,35 +219,54 @@ export abstract class CoherenceReviewer {
 
   /**
    * Call the Anthropic Messages API directly (same pattern as AnthropicIntelligenceProvider).
+   *
+   * Uses AbortController to enforce the reviewer's timeoutMs so the underlying
+   * fetch is cancelled when a Promise.race timeout fires in callers like GateReviewer.
+   * Without cancellation, timed-out fetches keep running, pile up, and eventually
+   * cause the HTTP request timeout middleware to return 408 after 30s.
    */
   protected async callApi(prompt: string): Promise<string> {
     const model = resolveModelId(this.options.model ?? 'haiku');
+    const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': ANTHROPIC_API_VERSION,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 200,
-        temperature: 0,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'unknown error');
-      throw new Error(`Anthropic API error ${response.status}: ${errorText}`);
+    try {
+      const response = await fetch(ANTHROPIC_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': ANTHROPIC_API_VERSION,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 200,
+          temperature: 0,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'unknown error');
+        throw new Error(`Anthropic API error ${response.status}: ${errorText}`);
+      }
+
+      const data = (await response.json()) as {
+        content: Array<{ type: string; text?: string }>;
+      };
+
+      const textBlock = data.content?.find((block) => block.type === 'text');
+      return textBlock?.text ?? '';
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeoutMs}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-
-    const data = (await response.json()) as {
-      content: Array<{ type: string; text?: string }>;
-    };
-
-    const textBlock = data.content?.find((block) => block.type === 'text');
-    return textBlock?.text ?? '';
   }
 }
