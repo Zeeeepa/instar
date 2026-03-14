@@ -71,7 +71,9 @@ export class ServerSupervisor extends EventEmitter {
   private circuitBreakerTrippedAt = 0;
   private circuitBreakerRetryCount = 0;
   private readonly circuitBreakerRetryIntervalMs = 30 * 60_000; // 30 min between retries
-  private readonly maxCircuitBreakerRetries = 3; // Try 3 times before truly giving up
+  private readonly maxCircuitBreakerRetries = 3; // Try 3 times at 30-min intervals before entering slow-retry
+  private readonly slowRetryIntervalMs = 2 * 60 * 60_000; // 2 hours between slow retries (never truly give up)
+  private slowRetryStartedAt = 0; // When slow retry mode started
   private lastCrashOutput = ''; // Last captured crash output for diagnostics
   private doctorSessionSecret: string | null = null; // HMAC secret for doctor restart requests
 
@@ -206,6 +208,7 @@ export class ServerSupervisor extends EventEmitter {
     this.totalFailureWindowStart = 0;
     this.restartAttempts = 0;
     this.maxRetriesExhaustedAt = 0;
+    this.slowRetryStartedAt = 0;
     console.log('[Supervisor] Circuit breaker reset');
   }
 
@@ -579,17 +582,42 @@ export class ServerSupervisor extends EventEmitter {
   private handleUnhealthy(): void {
     // Circuit breaker — periodic retry instead of permanent death
     if (this.circuitBroken) {
-      if (this.circuitBreakerRetryCount >= this.maxCircuitBreakerRetries) {
-        return; // Truly given up — needs manual intervention
+      // Phase 1: Fast retries (every 30 min, 3x)
+      if (this.circuitBreakerRetryCount < this.maxCircuitBreakerRetries) {
+        const elapsed = Date.now() - this.circuitBreakerTrippedAt;
+        const nextRetryAt = this.circuitBreakerRetryIntervalMs * (this.circuitBreakerRetryCount + 1);
+
+        if (elapsed >= nextRetryAt) {
+          this.circuitBreakerRetryCount++;
+          console.log(`[Supervisor] Circuit breaker retry ${this.circuitBreakerRetryCount}/${this.maxCircuitBreakerRetries}`);
+          this.emit('serverRestarting', this.circuitBreakerRetryCount);
+
+          // Kill existing session if alive
+          if (this.tmuxPath && this.isServerSessionAlive()) {
+            this.captureCrashOutput();
+            this.cleanupChildProcesses();
+            try {
+              execFileSync(this.tmuxPath, ['kill-session', '-t', `=${this.serverSessionName}`], {
+                stdio: 'ignore',
+              });
+            } catch { /* ignore */ }
+          }
+
+          this.spawnServer();
+        }
+        return;
       }
 
-      const elapsed = Date.now() - this.circuitBreakerTrippedAt;
-      const nextRetryAt = this.circuitBreakerRetryIntervalMs * (this.circuitBreakerRetryCount + 1);
+      // Phase 2: Slow retry — never truly give up. Transient issues (Node version change,
+      // disk full, port conflict) often resolve themselves. Try every 2 hours forever.
+      if (this.slowRetryStartedAt === 0) {
+        this.slowRetryStartedAt = Date.now();
+        console.log(`[Supervisor] Circuit breaker fast retries exhausted. Entering slow-retry mode (every ${this.slowRetryIntervalMs / 3600_000}h). Use /lifeline reset for immediate retry.`);
+      }
 
-      if (elapsed >= nextRetryAt) {
-        this.circuitBreakerRetryCount++;
-        console.log(`[Supervisor] Circuit breaker retry ${this.circuitBreakerRetryCount}/${this.maxCircuitBreakerRetries}`);
-        this.emit('serverRestarting', this.circuitBreakerRetryCount);
+      const slowElapsed = Date.now() - (this.slowRetryStartedAt + this.slowRetryIntervalMs * Math.floor((Date.now() - this.slowRetryStartedAt) / this.slowRetryIntervalMs));
+      if (slowElapsed < 10_000) { // Within 10s of a 2-hour boundary
+        console.log(`[Supervisor] Slow retry attempt (${Math.round((Date.now() - this.slowRetryStartedAt) / 3600_000)}h since circuit breaker exhaustion)`);
 
         // Kill existing session if alive
         if (this.tmuxPath && this.isServerSessionAlive()) {
@@ -843,7 +871,18 @@ export class ServerSupervisor extends EventEmitter {
       if (!fs.existsSync(markerPath)) return false;
       const data = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
 
-      // Marker exists — enter maintenance wait mode
+      // TTL check: marker expires after 10 minutes. If the server hasn't recovered
+      // by then, the marker is stale and should not keep suppressing alerts or
+      // triggering maintenance-mode respawns indefinitely.
+      const markerAge = Date.now() - (new Date(data.exitedAt).getTime() || Date.now());
+      const markerTtlMs = 10 * 60_000; // 10 minutes
+      if (markerAge > markerTtlMs) {
+        console.warn(`[Supervisor] Planned-exit marker expired (${Math.round(markerAge / 60_000)}m old) — clearing and falling back to normal alerting`);
+        try { fs.unlinkSync(markerPath); } catch { /* ignore */ }
+        return false;
+      }
+
+      // Marker exists and is fresh — enter maintenance wait mode
       console.log(`[Supervisor] Found planned-exit marker (target: v${data.targetVersion}) — entering maintenance wait`);
       this.maintenanceWaitStartedAt = new Date(data.exitedAt).getTime() || Date.now();
       return true;
