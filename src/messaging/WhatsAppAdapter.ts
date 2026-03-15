@@ -65,7 +65,10 @@ export interface WhatsAppConfig {
   /** Business API-specific config (Phase 3) */
   businessApi?: BusinessApiConfig;
 
-  /** Authorized phone numbers (E.164 format: +1234567890). Empty = allow all. */
+  /**
+   * Authorized phone numbers (E.164 format: +1234567890).
+   * Empty/missing = deny all (safe default). Use ['*'] to explicitly allow all.
+   */
   authorizedNumbers?: string[];
 
   /** Voice transcription provider (shared with Telegram) */
@@ -245,8 +248,19 @@ export class WhatsAppAdapter implements MessagingAdapter {
     this.commandRouter = new CommandRouter('whatsapp');
     this.registerCommands();
 
+    const normalizedNumbers = (this.config.authorizedNumbers ?? []).map(n =>
+      n === '*' ? '*' : normalizePhoneNumber(n),
+    );
+
+    if (normalizedNumbers.length === 0) {
+      console.warn(
+        '[whatsapp] WARNING: No authorizedNumbers configured. All incoming messages will be rejected. ' +
+        'Set authorizedNumbers in your WhatsApp config to allow specific contacts, or use ["*"] to allow all (not recommended for personal accounts).',
+      );
+    }
+
     this.authGate = new AuthGate({
-      authorizedUsers: (this.config.authorizedNumbers ?? []).map(n => normalizePhoneNumber(n)),
+      authorizedUsers: normalizedNumbers,
     });
 
     this.eventBus = new MessagingEventBus('whatsapp');

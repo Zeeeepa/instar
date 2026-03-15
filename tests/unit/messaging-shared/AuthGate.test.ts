@@ -23,10 +23,22 @@ describe('AuthGate', () => {
   // ── Authorization ──────────────────────────────────────
 
   describe('isAuthorized', () => {
-    it('allows all users when no authorized list is set', () => {
+    it('denies all users when authorized list is empty (safe default)', () => {
       const gate = new AuthGate({ authorizedUsers: [] });
+      expect(gate.isAuthorized('anyone')).toBe(false);
+      expect(gate.isAuthorized('12345')).toBe(false);
+    });
+
+    it('allows all users when wildcard "*" is in authorized list', () => {
+      const gate = new AuthGate({ authorizedUsers: ['*'] });
       expect(gate.isAuthorized('anyone')).toBe(true);
       expect(gate.isAuthorized('12345')).toBe(true);
+    });
+
+    it('allows wildcard alongside specific users', () => {
+      const gate = new AuthGate({ authorizedUsers: ['100', '*'] });
+      expect(gate.isAuthorized('100')).toBe(true);
+      expect(gate.isAuthorized('999')).toBe(true);
     });
 
     it('allows authorized users', () => {
@@ -44,6 +56,16 @@ describe('AuthGate', () => {
       const gate = new AuthGate({ authorizedUsers: ['12345678'] });
       expect(gate.isAuthorized('12345678')).toBe(true);
       expect(gate.isAuthorized(12345678 as unknown as string)).toBe(true);
+    });
+
+    it('REGRESSION: empty authorizedNumbers must not allow all (WhatsApp hijack bug)', () => {
+      // This test guards against the bug where the Dude agent with no
+      // authorizedNumbers configured responded to ALL WhatsApp contacts,
+      // sending 1300+ spam messages to personal conversations.
+      const gate = new AuthGate({ authorizedUsers: [] });
+      expect(gate.isAuthorized('+15551234567')).toBe(false);
+      expect(gate.isAuthorized('+15559876543')).toBe(false);
+      expect(gate.isAuthorized('random-contact')).toBe(false);
     });
   });
 

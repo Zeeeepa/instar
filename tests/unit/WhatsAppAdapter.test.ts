@@ -78,8 +78,13 @@ describe('WhatsAppAdapter', () => {
       expect(adapter.getAuthGate().isAuthorized('+19999999999')).toBe(false);
     });
 
-    it('allows all users when no authorized list', () => {
+    it('denies all users when no authorized list (safe default)', () => {
       const adapter = createAdapter({ authorizedNumbers: [] });
+      expect(adapter.getAuthGate().isAuthorized('+19999999999')).toBe(false);
+    });
+
+    it('allows all users when wildcard "*" is in authorized list', () => {
+      const adapter = createAdapter({ authorizedNumbers: ['*'] });
       expect(adapter.getAuthGate().isAuthorized('+19999999999')).toBe(true);
     });
   });

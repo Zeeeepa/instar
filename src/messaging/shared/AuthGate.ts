@@ -7,7 +7,10 @@
  */
 
 export interface AuthGateConfig {
-  /** Authorized user identifiers (platform-specific). Empty = allow all. */
+  /**
+   * Authorized user identifiers (platform-specific).
+   * Empty = deny all (safe default). Use ['*'] to explicitly allow all users.
+   */
   authorizedUsers: string[];
   /** Registration policy for unknown users */
   registrationPolicy?: RegistrationPolicy;
@@ -52,21 +55,27 @@ export interface AuthGateCallbacks {
 
 export class AuthGate {
   private authorizedUsers: Set<string>;
+  private allowAll: boolean;
   private policy: RegistrationPolicy;
   private rateLimitMap: Map<string, number> = new Map();
   private static readonly COOLDOWN_MS = 60_000; // 1 minute between responses
 
   constructor(config: AuthGateConfig) {
-    this.authorizedUsers = new Set(config.authorizedUsers.map(u => u.toString()));
+    this.allowAll = config.authorizedUsers.some(u => u === '*');
+    this.authorizedUsers = new Set(
+      config.authorizedUsers.filter(u => u !== '*').map(u => u.toString()),
+    );
     this.policy = config.registrationPolicy ?? { policy: 'closed' };
   }
 
   /**
    * Check if a user is authorized.
-   * If no authorized users configured, all users are accepted.
+   * Empty authorized list = deny all (safe default).
+   * Use '*' in the authorized list to explicitly allow all users.
    */
   isAuthorized(userId: string): boolean {
-    if (this.authorizedUsers.size === 0) return true;
+    if (this.allowAll) return true;
+    if (this.authorizedUsers.size === 0) return false;
     return this.authorizedUsers.has(userId.toString());
   }
 
