@@ -1101,7 +1101,7 @@ mkdir -p .instar/state/sessions .instar/state/jobs .instar/logs
     "tmuxPath": "/opt/homebrew/bin/tmux",
     "claudePath": "/path/to/claude",
     "projectDir": "/path/to/project",
-    "maxSessions": 3,
+    "maxSessions": 10,
     "protectedSessions": ["my-project-server"],
     "completionPatterns": [
       "has been automatically paused",

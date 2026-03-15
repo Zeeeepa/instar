@@ -1642,11 +1642,12 @@ export function createRoutes(ctx: RouteContext): Router {
 
     try {
       const dryRun = req.query.dry_run === 'true';
+      const maxBudget = req.query.maxTokens ? parseInt(req.query.maxTokens as string, 10) : undefined;
       if (dryRun) {
         const plan = await ctx.selfKnowledgeTree.dryRun(query);
         res.json(plan);
       } else {
-        const result = await ctx.selfKnowledgeTree.search(query);
+        const result = await ctx.selfKnowledgeTree.search(query, { maxBudget });
         res.json(result);
       }
     } catch (err) {

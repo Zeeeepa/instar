@@ -6,6 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { mergeConfigWithSecrets } from './SecretMigrator.js';
@@ -13,7 +14,7 @@ import os from 'node:os';
 import type { InstarConfig, SessionManagerConfig, JobSchedulerConfig, FeedbackConfig, AgentType } from './types.js';
 
 const DEFAULT_PORT = 4040;
-const DEFAULT_MAX_SESSIONS = 3;
+const DEFAULT_MAX_SESSIONS = 10;
 const DEFAULT_MAX_PARALLEL_JOBS = 2;
 
 export function getInstarVersion(): string {
@@ -272,6 +273,20 @@ export function loadConfig(projectDir?: string): InstarConfig {
     },
   };
 
+  // Auto-generate contextSigningKey if not present (persists to config file)
+  let contextSigningKey = fileConfig.contextSigningKey as string | undefined;
+  if (!contextSigningKey && fs.existsSync(configPath)) {
+    contextSigningKey = crypto.randomBytes(32).toString('hex');
+    try {
+      const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      raw.contextSigningKey = contextSigningKey;
+      fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + '\n');
+    } catch {
+      // Non-fatal — integrity verification will be skipped if key can't be persisted
+      contextSigningKey = undefined;
+    }
+  }
+
   const host = fileConfig.host || '127.0.0.1';
 
   // Warn if binding to a non-loopback address without auth token
@@ -321,6 +336,7 @@ export function loadConfig(projectDir?: string): InstarConfig {
     agentType: resolvedProjectDir.startsWith(standaloneAgentsDir())
       ? 'standalone'
       : (fileConfig as Record<string, unknown>).agentType as AgentType | undefined || 'project-bound',
+    contextSigningKey,
   };
 }
 

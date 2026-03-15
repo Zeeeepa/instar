@@ -61,6 +61,8 @@ export interface SelfKnowledgeResult {
   elapsedMs: number;
   cacheHitRate: number;
   errors: SourceError[];
+  triageMethod?: 'llm' | 'rule-based';
+  confidence?: number;                     // Max node confidence (0.0-1.0)
 }
 
 export interface SelfKnowledgeFragment {
@@ -155,7 +157,8 @@ export const CACHE_TTL_MS: Record<CacheTier, number> = {
 // ── Triage ─────────────────────────────────────────────────────────
 
 export interface TriageResult {
-  scores: Record<string, number>;
+  scores: Record<string, number>;          // Layer-level scores (Stage 1)
+  nodeScores?: Record<string, number>;     // Node-level scores (Stage 2)
   mode: 'llm' | 'rule-based';
   elapsedMs: number;
 }

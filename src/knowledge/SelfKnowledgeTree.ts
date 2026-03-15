@@ -105,12 +105,16 @@ export class SelfKnowledgeTree {
     let budgetUsed = 0;
 
     // 1. Triage — which layers are relevant?
+    // Rule-based is now the primary mode (zero token cost). LLM is fallback for ambiguous queries.
+    // "degraded" only means total triage failure (catch block), not rule-based mode.
     let triageResult;
+    let degraded = false;
     try {
       triageResult = await this.triage.triage(query, config.layers);
       if (triageResult.mode === 'llm') budgetUsed++;
     } catch {
       // Total triage failure — use alwaysInclude only
+      degraded = true;
       triageResult = {
         scores: Object.fromEntries(config.layers.map(l => [l.id, 0])),
         mode: 'rule-based' as const,
@@ -118,27 +122,37 @@ export class SelfKnowledgeTree {
       };
     }
 
-    const degraded = triageResult.mode === 'rule-based';
-
     // 2. Filter layers
     let relevantLayers = options?.layerFilter
       ? config.layers.filter(l => options.layerFilter!.includes(l.id))
       : this.triage.filterRelevantLayers(config.layers, triageResult.scores);
 
-    // 3. Collect nodes to search
+    // 3. Collect nodes to search — two-stage: layer filter then node-level scoring
     const nodesToSearch: SelfKnowledgeNode[] = [];
     const nodesToSkip: string[] = [];
+    const nodeScores = triageResult.nodeScores ?? {};
 
     for (const layer of config.layers) {
       const isRelevant = relevantLayers.some(l => l.id === layer.id);
 
       for (const node of layer.children) {
-        if (node.alwaysInclude || isRelevant) {
-          if (options?.publicOnly && node.sensitivity === 'internal') {
-            nodesToSkip.push(node.id);
-            continue;
-          }
+        if (options?.publicOnly && node.sensitivity === 'internal') {
+          nodesToSkip.push(node.id);
+          continue;
+        }
+
+        if (node.alwaysInclude) {
+          // alwaysInclude nodes are never skipped
           nodesToSearch.push(node);
+        } else if (isRelevant) {
+          // Within relevant layers, use node-level scores to filter
+          const nodeScore = nodeScores[node.id] ?? 0;
+          if (nodeScore >= this.triage.relevanceThreshold * 0.75 || Object.keys(nodeScores).length === 0) {
+            // Include if node scores above threshold, or if no node scoring was done
+            nodesToSearch.push(node);
+          } else {
+            nodesToSkip.push(node.id);
+          }
         } else {
           nodesToSkip.push(node.id);
         }
@@ -167,6 +181,14 @@ export class SelfKnowledgeTree {
       if (synthesisResult.synthesis) budgetUsed++;
     }
 
+    // Compute max confidence from node scores
+    const searchedNodeScores = nodesToSearch
+      .map(n => nodeScores[n.id] ?? 0)
+      .filter(s => s > 0);
+    const confidence = searchedNodeScores.length > 0
+      ? Math.max(...searchedNodeScores)
+      : (fragments.length > 0 ? 0.5 : 0); // Default 0.5 if we have results but no scoring
+
     const result: SelfKnowledgeResult = {
       query,
       degraded,
@@ -176,6 +198,8 @@ export class SelfKnowledgeTree {
       elapsedMs: Date.now() - start,
       cacheHitRate: cacheStats.hitRate,
       errors,
+      triageMethod: triageResult.mode,
+      confidence,
     };
 
     // 6. Log trace
@@ -218,6 +242,7 @@ export class SelfKnowledgeTree {
 
     const triageResult = await this.triage.triage(query, config.layers);
     const relevantLayers = this.triage.filterRelevantLayers(config.layers, triageResult.scores);
+    const nodeScores = triageResult.nodeScores ?? {};
 
     const nodesToSearch: string[] = [];
     const nodesToSkip: string[] = [];
@@ -225,8 +250,15 @@ export class SelfKnowledgeTree {
     for (const layer of config.layers) {
       const isRelevant = relevantLayers.some(l => l.id === layer.id);
       for (const node of layer.children) {
-        if (node.alwaysInclude || isRelevant) {
+        if (node.alwaysInclude) {
           nodesToSearch.push(node.id);
+        } else if (isRelevant) {
+          const nodeScore = nodeScores[node.id] ?? 0;
+          if (nodeScore >= this.triage.relevanceThreshold * 0.75 || Object.keys(nodeScores).length === 0) {
+            nodesToSearch.push(node.id);
+          } else {
+            nodesToSkip.push(node.id);
+          }
         } else {
           nodesToSkip.push(node.id);
         }

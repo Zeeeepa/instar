@@ -1355,6 +1355,8 @@ export interface InstarConfig {
   threadline?: ThreadlineConfig;
   /** Dashboard configuration */
   dashboard?: DashboardConfig;
+  /** HMAC signing key for context file integrity verification (auto-generated, 32-byte hex) */
+  contextSigningKey?: string;
 }
 
 // ── Dashboard ───────────────────────────────────────────────────────

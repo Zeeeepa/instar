@@ -48,6 +48,7 @@ import {
   generateUserMd,
   generateMemoryMd,
   generateClaudeMd,
+  generateSeedClaudeMd,
 } from '../scaffold/templates.js';
 import type { InstarConfig } from '../core/types.js';
 

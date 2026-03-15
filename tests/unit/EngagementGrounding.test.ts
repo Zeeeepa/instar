@@ -230,7 +230,7 @@ Improve test coverage. Catch regressions early.
         {
           id: 'experience.lessons',
           name: 'Lessons',
-          alwaysInclude: false,
+          alwaysInclude: true, // alwaysInclude ensures this loads regardless of triage
           managed: true,
           depth: 'medium',
           maxTokens: 500,
@@ -243,14 +243,15 @@ Improve test coverage. Catch regressions early.
 
     const mockLLM = {
       evaluate: vi.fn()
-        .mockResolvedValueOnce('{"identity": 0.9, "capabilities": 0.5, "state": 0.1, "evolution": 0.3, "experience": 0.8}')
-        .mockResolvedValueOnce('I am TestBot. I value reliability and have learned that TDD catches 80% of regressions.'),
+        .mockResolvedValueOnce('{"identity": 0.9, "capabilities": 0.2, "experience": 0.8}') // layer triage
+        .mockResolvedValueOnce('{"identity.core": 0.9, "identity.internal": 0.3, "experience.lessons": 0.9}') // node triage
+        .mockResolvedValueOnce('I am TestBot. I value reliability and have learned that TDD catches 80% of regressions.'), // synthesis
     };
     const tree = createTree(mockLLM);
 
-    const result = await tree.ground('testing and quality');
+    const result = await tree.ground('who am I and what have I learned?');
 
-    // Should have fragments from multiple layers
+    // Should have fragments from multiple layers (identity.core + experience.lessons via alwaysInclude)
     const layerIds = new Set(result.fragments.map(f => f.layerId));
     expect(layerIds.size).toBeGreaterThanOrEqual(2);
 
@@ -302,12 +303,13 @@ Improve test coverage. Catch regressions early.
 
   it('2.7: ground() returns useful result when LLM unavailable', async () => {
     writeConfig(makeConfig());
-    const tree = createTree(); // No intelligence provider
+    const tree = createTree(); // No intelligence provider — rule-based triage is primary
 
     const result = await tree.ground('testing');
 
-    expect(result.degraded).toBe(true);
-    expect(result.synthesis).toBeNull();
+    // Rule-based triage is the primary mode, not degraded
+    expect(result.degraded).toBe(false);
+    expect(result.synthesis).toBeNull(); // No LLM for synthesis
 
     // alwaysInclude fragments still present
     const identityFragments = result.fragments.filter(f => f.layerId === 'identity');
@@ -369,8 +371,8 @@ Improve test coverage. Catch regressions early.
     expect(second.cached).toBe(false);
   });
 
-  // X2.3: Total LLM failure during grounding
-  it('X2.3: total LLM failure produces degraded grounding', async () => {
+  // X2.3: LLM failure during grounding — rule-based triage still works
+  it('X2.3: LLM failure still produces useful grounding via rule-based triage', async () => {
     writeConfig(makeConfig());
     const failLLM = {
       evaluate: vi.fn().mockRejectedValue(new Error('rate limited')),
@@ -379,7 +381,9 @@ Improve test coverage. Catch regressions early.
 
     const result = await tree.ground('testing');
 
-    expect(result.degraded).toBe(true);
+    // Rule-based triage is primary — LLM failure doesn't cause degradation
+    expect(result.degraded).toBe(false);
+    // Synthesis is null because LLM failed
     expect(result.synthesis).toBeNull();
     // Still has fragments from alwaysInclude nodes
     expect(result.fragments.length).toBeGreaterThanOrEqual(1);

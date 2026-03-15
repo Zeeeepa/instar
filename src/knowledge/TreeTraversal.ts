@@ -21,6 +21,7 @@ import type {
 } from './types.js';
 import { CACHE_TTL_MS, layerToTier } from './types.js';
 import type { ProbeRegistry } from './ProbeRegistry.js';
+import type { IntegrityManager } from './IntegrityManager.js';
 
 const DEFAULT_SOURCE_TIMEOUT_MS = 5_000;
 const CHARS_PER_TOKEN = 4; // rough estimate
@@ -41,6 +42,7 @@ export interface TraversalDependencies {
   memoryIndex?: MemorySearchable;
   knowledgeManager?: { getCatalog?(): { sources: Array<{ title: string; summary: string }> } };
   decisionJournal?: DecisionJournalQueryable;
+  integrityManager?: IntegrityManager;
 }
 
 export class TreeTraversal {
@@ -168,8 +170,9 @@ export class TreeTraversal {
       return { fragments, errors };
     }
 
-    // Combine and truncate to maxTokens
+    // Combine, strip HTML comments (prevent hidden injection), and truncate
     let combined = contents.join('\n\n');
+    combined = combined.replace(/<!--[\s\S]*?-->/g, '');
     const maxChars = node.maxTokens * CHARS_PER_TOKEN;
     if (combined.length > maxChars) {
       combined = combined.slice(0, maxChars) + '\n[truncated]';
@@ -241,8 +244,19 @@ export class TreeTraversal {
     const resolved = this.resolvePath(filePath);
     if (!resolved) return null;
     try {
+      // Verify integrity if IntegrityManager is available
+      if (this.deps.integrityManager) {
+        const result = this.deps.integrityManager.verify(resolved);
+        if (!result.valid) {
+          // Fail closed — throw to surface as a SourceError
+          throw new Error(`Integrity verification failed: ${result.reason}`);
+        }
+      }
       return fs.readFileSync(resolved, 'utf-8');
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Integrity verification failed')) {
+        throw err; // Re-throw integrity errors so they appear in SourceError[]
+      }
       return null;
     }
   }

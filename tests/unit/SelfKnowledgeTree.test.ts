@@ -114,21 +114,24 @@ Direct and technical. I don't waste words.
     };
   }
 
-  // Gate Test 1.22: Full search in degraded mode returns useful result
-  it('returns degraded result when no LLM available', async () => {
+  // Gate Test 1.22: Full search with rule-based triage (primary mode, no LLM needed)
+  it('returns useful result with rule-based triage (no LLM)', async () => {
     const config = makeConfig();
     writeTreeConfig(config);
     const tree = createTree();
 
     const result = await tree.search('who am I?');
 
-    expect(result.degraded).toBe(true);
+    // Rule-based is now the primary mode, NOT degraded
+    expect(result.degraded).toBe(false);
+    // Synthesis is null because no LLM provider for synthesis step
     expect(result.synthesis).toBeNull();
     // alwaysInclude nodes should still return fragments
     expect(result.fragments.length).toBeGreaterThanOrEqual(1);
     const coreFragment = result.fragments.find(f => f.nodeId === 'identity.core');
     expect(coreFragment).toBeDefined();
     expect(coreFragment!.content).toContain('TestBot');
+    expect(result.triageMethod).toBe('rule-based');
   });
 
   // Gate Test 1.21-like: Full search with mocked LLM
@@ -138,7 +141,8 @@ Direct and technical. I don't waste words.
 
     const mockLLM = {
       evaluate: vi.fn()
-        .mockResolvedValueOnce('{"identity": 0.9, "capabilities": 0.3}') // triage
+        .mockResolvedValueOnce('{"identity": 0.9, "capabilities": 0.3}') // layer triage
+        .mockResolvedValueOnce('{"identity.core": 0.9, "identity.internal": 0.3}') // node triage
         .mockResolvedValueOnce('I am TestBot, a testing assistant.'),     // synthesis
     };
 
@@ -148,22 +152,24 @@ Direct and technical. I don't waste words.
     expect(result.degraded).toBe(false);
     expect(result.synthesis).toContain('TestBot');
     expect(result.fragments.length).toBeGreaterThanOrEqual(1);
-    expect(result.budgetUsed).toBe(2); // triage + synthesis
+    expect(result.budgetUsed).toBe(2); // triage (layer+node counted as 1) + synthesis
   });
 
   // Gate Test 1.26: Budget enforcement
   it('respects budget limits', async () => {
     const config = makeConfig();
-    config.budget.maxLlmCalls = 1; // Only allow 1 LLM call
+    config.budget.maxLlmCalls = 2; // Allow 2 LLM calls
     writeTreeConfig(config);
 
     const mockLLM = {
       evaluate: vi.fn()
-        .mockResolvedValueOnce('{"identity": 0.9, "capabilities": 0.3}') // triage (1 call)
-        .mockResolvedValueOnce('synthesis'), // should NOT be called
+        .mockResolvedValueOnce('{"identity": 0.9, "capabilities": 0.3}') // layer triage (1 call)
+        .mockResolvedValueOnce('{"identity.core": 0.9, "identity.internal": 0.3}') // node triage (2nd call)
+        .mockResolvedValueOnce('synthesis text'), // synthesis (3rd call)
     };
 
     const tree = createTree(mockLLM);
+    // Budget of 1 means only triage can run, synthesis should be skipped
     const result = await tree.search('who am I?', { maxBudget: 1 });
 
     // Budget exhausted after triage — synthesis should be skipped
@@ -347,7 +353,7 @@ Direct and technical. I don't waste words.
     expect(result.topic).toBe('testing');
     expect(result.platform).toBe('moltbook');
     expect(result.fragments.length).toBeGreaterThanOrEqual(1);
-    expect(result.degraded).toBe(true); // No LLM
+    expect(result.degraded).toBe(false); // Rule-based triage is normal, not degraded
     expect(typeof result.elapsedMs).toBe('number');
   });
 
